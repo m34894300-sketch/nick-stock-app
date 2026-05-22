@@ -4548,41 +4548,53 @@ def main() -> None:
     snapshot = render_update_controls(snapshot)
     st.session_state.snapshot = snapshot
 
-    tabs = st.tabs(["總覽", "大盤K線", "外部風險", "新聞快照", "資金流向", "資金流入雷達", "資金退潮雷達", "個股法醫分析器", "更新紀錄"])
+    # v3.3.9 手機安全版：
+    # 原生 st.tabs 會一次渲染所有頁面，手機容易因 DOM / 圖表 / 內嵌個股分析器太重而打不開。
+    # 改為單頁渲染：只載入目前選到的頁面，iPhone 初始畫面會輕很多。
+    pages = ["總覽", "大盤K線", "外部風險", "新聞快照", "資金流向", "資金流入雷達", "資金退潮雷達", "個股法醫分析器", "更新紀錄"]
+    if "main_page_select" not in st.session_state:
+        st.session_state.main_page_select = "總覽"
 
-    with tabs[0]:
+    selected_page = st.selectbox(
+        "切換頁面",
+        pages,
+        index=pages.index(st.session_state.main_page_select) if st.session_state.main_page_select in pages else 0,
+        key="main_page_select",
+    )
+
+    if selected_page == "總覽":
         render_verdict_card(snapshot)
         render_market_rise_sources_card(snapshot)
         render_ma_deduction_card(snapshot)
         render_data_health(snapshot)
         render_scenarios(snapshot)
 
-    with tabs[1]:
+    elif selected_page == "大盤K線":
         render_market_chart(snapshot)
 
-    with tabs[2]:
+    elif selected_page == "外部風險":
         render_external_risk(snapshot)
 
-    with tabs[3]:
+    elif selected_page == "新聞快照":
         render_news_snapshot(snapshot)
 
-    with tabs[4]:
+    elif selected_page == "資金流向":
         render_flow_settings()
         render_flow_map(snapshot)
         render_discovery(snapshot)
 
-    with tabs[5]:
+    elif selected_page == "資金流入雷達":
         render_radar_settings("inflow")
         render_radar_page(snapshot, "inflow")
 
-    with tabs[6]:
+    elif selected_page == "資金退潮雷達":
         render_radar_settings("outflow")
         render_radar_page(snapshot, "outflow")
 
-    with tabs[7]:
+    elif selected_page == "個股法醫分析器":
         render_original_stock_analyzer_app()
 
-    with tabs[8]:
+    elif selected_page == "更新紀錄":
         render_data_health(snapshot)
         render_update_log(snapshot)
         with st.expander("清除本地快照"):
