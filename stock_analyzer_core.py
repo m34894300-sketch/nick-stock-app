@@ -4458,6 +4458,28 @@ def normalize_eps_series_for_ttm(p, eps_col):
     t = t.dropna(subset=["dt", "eps_raw"]).sort_values("dt")
     if t.empty:
         return [], "EPS 資料清洗後為空", False
+
+    # fix11：EPS 防呆收緊
+    # 原本只要任一歷史年度看起來像累計 EPS，就會一路把 eps_cumulative_suspect=True
+    # 帶到最新分析，導致像「EPS(TTM估算) / 近四季合計」這種已經合理的欄位仍跳出
+    # 「疑似累計值」警示。現在只在「最近四季實際有被轉換」時才觸發警示。
+    # 若欄位名稱本身已明確標示 TTM / 近四季 / LTM / 未來12個月，則不做累計轉換警示。
+    eps_col_label = str(eps_col or "").lower()
+    explicit_ttm_label = any(
+        key in eps_col_label
+        for key in [
+            "ttm",
+            "ltm",
+            "trailing",
+            "近四季",
+            "四季",
+            "12個月",
+            "十二個月",
+            "未來12",
+            "forward",
+        ]
+    )
+
     t["year"] = t["dt"].dt.year
     t["quarter"] = t["dt"].dt.quarter
     out = []
@@ -4476,7 +4498,12 @@ def normalize_eps_series_for_ttm(p, eps_col):
             else False
         )
         likely_cumulative = (
-            enough and nonneg and mono_up and later_quarter and strong_accumulation
+            (not explicit_ttm_label)
+            and enough
+            and nonneg
+            and mono_up
+            and later_quarter
+            and strong_accumulation
         )
         if likely_cumulative:
             suspect_years.append(str(y))
@@ -4505,13 +4532,25 @@ def normalize_eps_series_for_ttm(p, eps_col):
                     }
                 )
     out_df = pd.DataFrame(out).sort_values("dt")
-    eps_series = out_df["eps_quarter"].tail(4).tolist()
+    recent_df = out_df.tail(4)
+    eps_series = recent_df["eps_quarter"].tolist()
+    recent_converted = bool(recent_df["converted"].any()) if not recent_df.empty else False
+
+    if recent_converted:
+        recent_years = sorted({str(pd.to_datetime(d).year) for d in recent_df[recent_df["converted"]]["dt"].tolist()})
+        return (
+            eps_series,
+            f"疑似偵測到最近四季 EPS 可能為累計值（{', '.join(recent_years)}），已嘗試轉成單季 EPS 後計算 TTM；仍需人工複核。",
+            True,
+        )
     if suspect_years:
         return (
             eps_series,
-            f"疑似偵測到 {', '.join(suspect_years)} 年 EPS 可能為累計值，已嘗試轉成單季 EPS 後計算 TTM；仍需人工複核。",
-            True,
+            f"歷史 EPS 曾出現疑似累計值型態（{', '.join(suspect_years)}），但最近四季未觸發；本次近四季 EPS 直接相加。",
+            False,
         )
+    if explicit_ttm_label:
+        return eps_series, "EPS 欄位標示為 TTM / 近四季 / 前瞻類型，未觸發累計 EPS 警示。", False
     return eps_series, "EPS 看起來像單季值，近四季 EPS 直接相加。", False
 
 
@@ -8787,7 +8826,7 @@ def simplify_alert_text(msg):
     if "估值位置未到可觀察區" in s:
         return "現在價格位置還不夠舒服，先觀察比較好。"
     if "財務風險限制 Focus" in s:
-        return "公司基本面還有風險，暫時不適合當主攻。"
+        return "成長本體與財報可支撐收編，但現金流 / 存貨 / 應收仍需追蹤，暫時不適合 Focus 重押。"
     if s.startswith("Focus No 原因："):
         return "主攻條件還沒到位，先觀察，不急著重壓。"
     if s.startswith("資料品質："):
