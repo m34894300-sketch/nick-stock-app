@@ -489,6 +489,65 @@ def flow_status_lookup(snapshot: Dict[str, Any]) -> Dict[str, str]:
             lookup[sector] = str(row.get("狀態") or "觀察中")
     return lookup
 
+def render_sector_valuation(snapshot: Dict[str, Any]) -> None:
+    """
+    Render a simple sector‐level valuation overview.  
+
+    這個模組會根據最新資金流向快照中的「分數」欄位，計算選定族群的平均評分。
+    平均評分可以用來觀察各族群的相對強弱，並非嚴格的估值指標，但可做為判斷資金偏好的一個參考。  
+
+    使用者可以多選感興趣的族群進行比較；按下按鈕後即會顯示結果。
+
+    注意：本模組僅為示範範本，沒有擅自改動法醫分析核心邏輯，也不會修改任何原本的資料結構。
+    """
+    st.markdown("### 🧮 族群估值模組")
+    # 取得可選族群列表：內建族群 + 最新資金流向 + 聯網候選
+    sector_options = radar_sector_options(snapshot)
+    # 預設選取前五個族群，避免一次選取過多導致載入緩慢
+    default_selection = sector_options[:5] if sector_options else []
+    selected_sectors = st.multiselect(
+        "選擇要比較的族群",
+        options=sector_options,
+        default=default_selection,
+    )
+    # 當沒有選擇任何族群時提示使用者
+    if not selected_sectors:
+        st.info("請在上方清單選擇一個或多個族群後，再按下計算按鈕。")
+        return
+    if st.button("計算族群平均分數", use_container_width=True):
+        results = []
+        # 建立一個 lookup 方便快速查詢資金流向分數
+        flow_rows = flow_rows_sorted(snapshot)
+        for sector in selected_sectors:
+            # 遍歷快照中的資金流向 rows，累加屬於該族群的分數
+            total = 0.0
+            count = 0
+            for row in flow_rows:
+                if str(row.get("族群")).strip() == sector:
+                    score = to_float(row.get("分數"))
+                    if score is not None:
+                        total += score
+                        count += 1
+            avg = total / count if count else None
+            # 使用 fmt_num 格式化平均分數，避免依賴嵌入式模組中未定義的 fmt 函式
+            results.append({
+                "族群": sector,
+                "平均分數": fmt_num(avg, 2) if avg is not None else "—",
+                "樣本數": count,
+            })
+        # 依平均分數排序，數值越高代表近期資金偏好程度越高
+        results_sorted = sorted(
+            results,
+            key=lambda x: to_float(x.get("平均分數")) if x.get("平均分數") not in ["—", None] else -999,
+            reverse=True,
+        )
+        st.markdown("#### 計算結果")
+        st.dataframe(
+            pd.DataFrame(results_sorted),
+            use_container_width=True,
+            hide_index=True,
+        )
+
 
 # =========================================================
 # 快照讀寫：打開 App 只讀本地，不抓外部資料
@@ -4548,7 +4607,19 @@ def main() -> None:
     snapshot = render_update_controls(snapshot)
     st.session_state.snapshot = snapshot
 
-    tabs = st.tabs(["總覽", "大盤K線", "外部風險", "新聞快照", "資金流向", "資金流入雷達", "資金退潮雷達", "個股法醫分析器", "更新紀錄"])
+    # 新增「族群估值模組」頁籤。插入在個股法醫分析器之前，使原索引後移。
+    tabs = st.tabs([
+        "總覽",
+        "大盤K線",
+        "外部風險",
+        "新聞快照",
+        "資金流向",
+        "資金流入雷達",
+        "資金退潮雷達",
+        "族群估值模組",
+        "個股法醫分析器",
+        "更新紀錄",
+    ])
 
     with tabs[0]:
         render_verdict_card(snapshot)
@@ -4579,10 +4650,14 @@ def main() -> None:
         render_radar_settings("outflow")
         render_radar_page(snapshot, "outflow")
 
+    # 新增：族群估值模組頁籤
     with tabs[7]:
-        render_original_stock_analyzer_app()
+        render_sector_valuation(snapshot)
 
     with tabs[8]:
+        render_original_stock_analyzer_app()
+
+    with tabs[9]:
         render_data_health(snapshot)
         render_update_log(snapshot)
         with st.expander("清除本地快照"):
