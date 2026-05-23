@@ -3455,26 +3455,27 @@ def render_update_controls(snapshot: Dict[str, Any]) -> Dict[str, Any]:
                 snapshot = update_market(snapshot)
             st.rerun()
     with col2:
-        if st.button("更新外部風險", use_container_width=True):
+        # 使用 type="primary" 讓按鈕顏色固定，不會隨日夜模式變化
+        if st.button("更新外部風險", use_container_width=True, type="primary"):
             with st.spinner("正在更新美股、VIX、匯率、黃金與油價..."):
                 snapshot = update_external(snapshot)
             st.rerun()
     with col3:
-        if st.button("更新新聞快照", use_container_width=True):
+        if st.button("更新新聞快照", use_container_width=True, type="primary"):
             with st.spinner("正在抓取新聞快照與風險標題..."):
                 snapshot = update_news(snapshot)
             st.rerun()
 
     col4, col5, col6 = st.columns(3)
     with col4:
-        if st.button("更新資金流向", use_container_width=True):
+        if st.button("更新資金流向", use_container_width=True, type="primary"):
             sectors = st.session_state.get("flow_sectors", [])
             max_each = int(st.session_state.get("flow_max_each", 4))
             with st.spinner("正在聯網掃描全市場資金流向..."):
                 snapshot = update_flow(snapshot, sectors, max_each)
             st.rerun()
     with col5:
-        if st.button("🌐 聯網新增標的", use_container_width=True):
+        if st.button("🌐 聯網新增標的", use_container_width=True, type="primary"):
             max_new = int(st.session_state.get("discovery_max_each", 3))
             with st.spinner("正在從 TWSE/TPEx/FinMind 尋找族群候選股..."):
                 snapshot = update_discovery(snapshot, max_per_sector=max_new)
@@ -3485,14 +3486,14 @@ def render_update_controls(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     st.markdown("#### 🧬 個股雷達掃描")
     r1, r2 = st.columns(2)
     with r1:
-        if st.button("掃資金流入佈局", use_container_width=True):
+        if st.button("掃資金流入佈局", use_container_width=True, type="primary"):
             sectors = resolve_radar_sectors_for_mode(snapshot, "inflow")
             max_each = int(st.session_state.get("radar_max_each", 4))
             with st.spinner("正在掃描資金流入、法人佈局、基本面支撐..."):
                 snapshot = update_radar(snapshot, sectors, max_each, radar_mode="inflow")
             st.rerun()
     with r2:
-        if st.button("掃資金退潮", use_container_width=True):
+        if st.button("掃資金退潮", use_container_width=True, type="primary"):
             sectors = resolve_radar_sectors_for_mode(snapshot, "outflow")
             max_each = int(st.session_state.get("radar_max_each", 4))
             with st.spinner("正在掃描資金退潮、法人賣壓、跌破風險..."):
@@ -4060,7 +4061,8 @@ def render_external_risk(snapshot: Dict[str, Any]) -> None:
         if "漲跌幅" in show.columns or "解讀" in show.columns:
             show["漲跌幅／解讀"] = show.apply(_chg_reading_label, axis=1)
 
-        display_cols = [c for c in ["指標（代號）", "最新", "分類", "漲跌幅／解讀", "對台股", "分數影響"] if c in show.columns]
+        # 移除「分數影響」欄位，僅顯示對新手友善的重點資訊
+        display_cols = [c for c in ["指標（代號）", "最新", "分類", "漲跌幅／解讀", "對台股"] if c in show.columns]
 
         # 手機版顏色判讀：
         # 依該列「漲跌幅」決定整列文字顏色：
@@ -4238,7 +4240,8 @@ def render_radar_quick_analyze_selector(df: pd.DataFrame, key_prefix: str) -> No
                 st.experimental_rerun()
 
 def render_radar_group_expanders(show: pd.DataFrame, sections: List[Tuple[str, List[str]]], cols: List[str]) -> None:
-    for title, source_statuses in sections:
+    # Use an index to ensure each group's quick-analyze widgets get a unique Streamlit key.
+    for idx, (title, source_statuses) in enumerate(sections):
         if show.empty or "狀態" not in show.columns:
             part = pd.DataFrame()
         else:
@@ -4250,7 +4253,9 @@ def render_radar_group_expanders(show: pd.DataFrame, sections: List[Tuple[str, L
             else:
                 display_cols = [c for c in cols if c in part.columns]
                 st.dataframe(part[display_cols], use_container_width=True, hide_index=True)
-                render_radar_quick_analyze_selector(part, f"group_{re.sub(r'[^0-9A-Za-z_]+', '_', title)}")
+                # Prefix the key with the index to avoid duplicate keys when different titles
+                sanitized = re.sub(r"[^0-9A-Za-z_]+", "_", title)
+                render_radar_quick_analyze_selector(part, f"group_{idx}_{sanitized}")
 
 
 def render_radar_by_sector_expander(show: pd.DataFrame, cols: List[str], title: str, allowed_statuses: Optional[List[str]] = None) -> None:
@@ -4268,12 +4273,15 @@ def render_radar_by_sector_expander(show: pd.DataFrame, cols: List[str], title: 
         if work.empty:
             st.caption("目前沒有符合標的。")
             return
-        for sector in sectors:
+        # Enumerate sectors to ensure each quick-analyze key is unique even if the sanitized
+        # sector name would be identical (e.g. Chinese names become underscores).
+        for idx, sector in enumerate(sectors):
             st.markdown(f"##### {sector}")
             sdf = work[work["族群"] == sector]
             display_cols = [c for c in cols if c in sdf.columns]
             st.dataframe(sdf[display_cols], use_container_width=True, hide_index=True)
-            render_radar_quick_analyze_selector(sdf, f"sector_{re.sub(r'[^0-9A-Za-z_]+', '_', str(sector))}")
+            sanitized = re.sub(r"[^0-9A-Za-z_]+", "_", str(sector))
+            render_radar_quick_analyze_selector(sdf, f"sector_{idx}_{sanitized}")
 
 
 def render_radar_page(snapshot: Dict[str, Any], mode: str) -> None:
