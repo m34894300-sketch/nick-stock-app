@@ -220,6 +220,160 @@ hr { border-color:#1f2937; }
         unsafe_allow_html=True,
     )
 
+    # 針對頁籤與表格增加專屬配色與字色設定
+    # - 調整 st.tabs 文字顏色讓其在深色背景下更顯眼但不刺眼
+    # - 為所有 st.dataframe 表格設定固定的深色背景，避免跟隨系統日夜模式改變
+    st.markdown(
+        """
+<style>
+/* ----- tabs text color ----- */
+[data-baseweb="tab"] {
+  color: #A7B0C2 !important;
+  font-weight: 700;
+}
+/* 作用中的分頁則使用更亮的文字 */
+[data-baseweb="tab"][aria-selected="true"] {
+  color: #F8FAFC !important;
+  border-bottom: 2px solid var(--blue);
+}
+
+/* ----- dataframe dark theme ----- */
+/* 整個 DataFrame 容器背景改為深色 */
+div[data-testid="stDataFrame"], .stDataFrame {
+  background-color: #070B12 !important;
+  color: #E5E7EB !important;
+}
+/* 表格內部單元格背景改為深色，文字顏色改為淡灰白 */
+.stDataFrame td, .stDataFrame th {
+  background-color: #0b1220 !important;
+  color: #E5E7EB !important;
+}
+/* 表格滑鼠 hover 顯示時微亮 */
+.stDataFrame tbody tr:hover > td {
+  background-color: #1f2937 !important;
+}
+
+/* ----- dark table helper styles ----- */
+/* The ``st-dark-table`` class is used by our patched st.dataframe implementation.
+   This ensures that tables rendered via our helper adopt a dark theme across all
+   devices and system themes. */
+.st-dark-table,
+.st-dark-table td,
+.st-dark-table th {
+  background-color: #0b1220 !important;
+  color: #E5E7EB !important;
+  border: 1px solid #233047 !important;
+  padding: 6px 8px;
+  font-size: 0.85rem;
+}
+ .st-dark-table th {
+   background-color: #172033 !important;
+   color: #93c5fd !important;
+   font-weight: 800;
+   /* 將表頭文字置中 */
+   text-align: center;
+ }
+
+ /* 將資料欄位置中顯示，讓項目文字居中 */
+ .st-dark-table td {
+   text-align: center;
+ }
+.st-dark-table tbody tr:hover td {
+  background-color: #1f2937 !important;
+}
+
+/* Responsive container for dark tables to prevent layout issues on narrow screens */
+.st-dark-table-container {
+  width: 100%;
+  overflow-x: auto;
+}
+.st-dark-table-container table {
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+ /* 在較窄的螢幕上調整字級與間距，降低擁擠感。
+    這段 media query 將表格文字縮小並減少 padding，
+    對行動裝置（尤其是直向模式）較友善。 */
+ @media (max-width: 600px) {
+   .st-dark-table td,
+   .st-dark-table th {
+     font-size: 0.7rem !important;
+     padding: 4px 6px !important;
+   }
+ }
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+
+    # Patch ``st.dataframe``, ``st.table`` and ``st.write`` to render dark-themed static tables.  This wrapper
+    # converts any DataFrame into an HTML table with the ``st-dark-table``
+    # class applied, ensuring consistent dark styling on both mobile and
+    # desktop, regardless of the system theme. Interactive features (sorting
+    # and scrolling) are sacrificed in favor of consistent styling across
+    # platforms.  The patch is applied only once to avoid repeated override.
+    def patch_streamlit_dataframe() -> None:
+        import pandas as _pd  # Local import to avoid polluting global namespace
+        import streamlit as _st
+        # Preserve original functions
+        original_df = _st.dataframe
+        original_table = _st.table
+        original_write = _st.write
+        # Skip patching if already patched
+        if getattr(_st.dataframe, "__patched_by_dark_theme__", False):
+            return
+        def to_dark_html(data, hide_index: bool) -> str:
+            """
+            將 DataFrame 轉為帶有深色樣式的 HTML 表格。
+
+            透過 escape=False 允許單元格包含 HTML（例如換行），
+            這樣在欄位如「漲跌幅／解讀」或合併欄位時可使用 <br> 分行。
+            """
+            if isinstance(data, _pd.DataFrame):
+                df = data.copy()
+            else:
+                df = _pd.DataFrame(data)
+            if hide_index:
+                df = df.reset_index(drop=True)
+            return df.to_html(index=not hide_index, border=0, classes="st-dark-table", escape=False)
+        def dark_dataframe(data=None, *args, **kwargs):
+            """Replacement for ``st.dataframe`` generating dark-themed static tables."""
+            hide_index = kwargs.pop("hide_index", False)
+            use_container_width = kwargs.pop("use_container_width", False)
+            try:
+                html_table = to_dark_html(data, hide_index)
+            except Exception:
+                return original_df(data, *args, **kwargs)
+            container_classes = "st-dark-table-container"
+            width_style = "" if not use_container_width else ""
+            html = f"<div class='{container_classes}' style='{width_style}'>{html_table}</div>"
+            return _st.markdown(html, unsafe_allow_html=True)
+        def dark_table(data=None, *args, **kwargs):
+            """Replacement for ``st.table`` generating dark-themed static tables."""
+            hide_index = kwargs.pop("hide_index", False)
+            try:
+                html_table = to_dark_html(data, hide_index)
+            except Exception:
+                return original_table(data, *args, **kwargs)
+            html = f"<div class='st-dark-table-container'>{html_table}</div>"
+            return _st.markdown(html, unsafe_allow_html=True)
+        def dark_write(*args, **kwargs):
+            """
+            Wrapper for ``st.write`` that routes DataFrames through the dark table
+            renderer while preserving other data types and behaviors.
+            """
+            if args and isinstance(args[0], _pd.DataFrame):
+                return dark_dataframe(args[0], **kwargs)
+            return original_write(*args, **kwargs)
+        # Mark patched functions and assign
+        setattr(dark_dataframe, "__patched_by_dark_theme__", True)
+        _st.dataframe = dark_dataframe
+        _st.table = dark_table
+        _st.write = dark_write
+    patch_streamlit_dataframe()
+
 
 # =========================================================
 # 股票池
@@ -3450,25 +3604,25 @@ def render_update_controls(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     st.markdown("### 🔄 更新資料")
     col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("更新大盤資料", use_container_width=True, type="primary"):
+        if st.button("大盤資料", use_container_width=True, type="primary"):
             with st.spinner("正在更新大盤 K 線與支撐壓力..."):
                 snapshot = update_market(snapshot)
             st.rerun()
     with col2:
         # 使用 type="primary" 讓按鈕顏色固定，不會隨日夜模式變化
-        if st.button("更新外部風險", use_container_width=True, type="primary"):
+        if st.button("外部風險", use_container_width=True, type="primary"):
             with st.spinner("正在更新美股、VIX、匯率、黃金與油價..."):
                 snapshot = update_external(snapshot)
             st.rerun()
     with col3:
-        if st.button("更新新聞快照", use_container_width=True, type="primary"):
+        if st.button("新聞快照", use_container_width=True, type="primary"):
             with st.spinner("正在抓取新聞快照與風險標題..."):
                 snapshot = update_news(snapshot)
             st.rerun()
 
     col4, col5, col6 = st.columns(3)
     with col4:
-        if st.button("更新資金流向", use_container_width=True, type="primary"):
+        if st.button("資金流向", use_container_width=True, type="primary"):
             sectors = st.session_state.get("flow_sectors", [])
             max_each = int(st.session_state.get("flow_max_each", 4))
             with st.spinner("正在聯網掃描全市場資金流向..."):
@@ -3481,7 +3635,8 @@ def render_update_controls(snapshot: Dict[str, Any]) -> Dict[str, Any]:
                 snapshot = update_discovery(snapshot, max_per_sector=max_new)
             st.rerun()
     with col6:
-        st.caption("新聞與外部風險只做校正，不取代台股K線與資金流向。")
+        # 移除原本提示文字，避免過度解釋新聞與風險資料用途
+        pass
 
     st.markdown("#### 🧬 個股雷達掃描")
     r1, r2 = st.columns(2)
@@ -3499,7 +3654,8 @@ def render_update_controls(snapshot: Dict[str, Any]) -> Dict[str, Any]:
             with st.spinner("正在掃描資金退潮、法人賣壓、跌破風險..."):
                 snapshot = update_radar(snapshot, sectors, max_each, radar_mode="outflow")
             st.rerun()
-    st.caption("App 開啟時不自動抓外部資料；建議順序：更新大盤 → 更新外部風險 → 更新新聞快照 → 更新資金流向 → 必要時聯網新增標的 → 掃資金流入佈局 / 掃資金退潮。")
+    # 更新順序提示：移除「更新」二字，使描述更簡潔
+    st.caption("App 開啟時不自動抓外部資料；建議順序：大盤資料 → 外部風險 → 新聞快照 → 資金流向 → 必要時聯網新增標的 → 掃資金流入佈局 / 掃資金退潮。")
     return snapshot
 
 
@@ -3989,25 +4145,27 @@ def render_scenarios(snapshot: Dict[str, Any]) -> None:
     verdict = market.get("verdict") or {}
     st.markdown("### 🎬 明日三劇本")
     data = [
-        {
-            "劇本": "A｜開高續強",
-            "觸發條件": f"站上轉強線 {fmt_price(levels.get('turn_strong'))}，主流族群續強，量能放大",
-            "操作": "續抱主流，不追高；等回測不破再找強股。",
-            "失敗條件": "開高量縮、上漲家數不足、主流股轉弱。",
-        },
-        {
-            "劇本": "B｜開高走低",
-            "觸發條件": "開盤衝高但站不穩壓力，族群輪動斷層。",
-            "操作": "不要追高，先看主流是否鈍化；弱股反彈不碰。",
-            "失敗條件": "重新站回壓力且族群擴散。",
-        },
-        {
-            "劇本": "C｜開低止跌",
-            "觸發條件": f"開低不破防守線 {fmt_price(levels.get('fail_line'))}，資金回流主流或暗流族群。",
-            "操作": "找強勢回檔股，不碰補跌股；先小部位確認。",
-            "失敗條件": "跌破防守線且放量。",
-        },
-    ]
+            {
+                # 移除字首的 A｜，僅顯示劇本名稱
+                "劇本": "開高續強",
+                "觸發條件": f"站上轉強線 {fmt_price(levels.get('turn_strong'))}，主流族群續強，量能放大",
+                "操作": "續抱主流，不追高；等回測不破再找強股。",
+                "失敗條件": "開高量縮、上漲家數不足、主流股轉弱。",
+            },
+            {
+                "劇本": "開高走低",
+                "觸發條件": "開盤衝高但站不穩壓力，族群輪動斷層。",
+                "操作": "不要追高，先看主流是否鈍化；弱股反彈不碰。",
+                "失敗條件": "重新站回壓力且族群擴散。",
+            },
+            {
+                "劇本": "開低止跌",
+                "觸發條件": f"開低不破防守線 {fmt_price(levels.get('fail_line'))}，資金回流主流或暗流族群。",
+                "操作": "找強勢回檔股，不碰補跌股；先小部位確認。",
+                "失敗條件": "跌破防守線且放量。",
+            },
+        ]
+    # 使用 patched st.dataframe 渲染深色表格，隱藏索引
     st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
     if verdict:
         st.caption(f"目前主劇本：{verdict.get('direction', '—')}｜建議部位：{verdict.get('position', '—')}")
@@ -4054,39 +4212,93 @@ def render_external_risk(snapshot: Dict[str, Any]) -> None:
             show["最新"] = show["最新"].apply(fmt_price)
 
         def _chg_reading_label(r):
+            """
+            組合漲跌幅與解讀為兩行文字：
+            上行顯示百分比，下行顯示解讀，移除分隔符號。
+            若沒有解讀，僅顯示漲跌幅。
+            返回 HTML 字串以便 <br> 正確渲染。
+            """
             chg = fmp(r.get("漲跌幅")) if "漲跌幅" in r.index else "—"
             reading = str(r.get("解讀", "") or "").strip()
-            return f"{chg}｜{reading}" if reading else chg
+            if reading:
+                # 將解讀文字字級縮小，方便閱讀
+                return f"{chg}<br/><span style='font-size:0.8em;'>{reading}</span>"
+            else:
+                return chg
 
         if "漲跌幅" in show.columns or "解讀" in show.columns:
             show["漲跌幅／解讀"] = show.apply(_chg_reading_label, axis=1)
 
-        # 移除「分數影響」欄位，僅顯示對新手友善的重點資訊
-        display_cols = [c for c in ["指標（代號）", "最新", "分類", "漲跌幅／解讀", "對台股"] if c in show.columns]
+        # 移除「分數影響」欄位，並且移除「分類」欄位（分類顯示大分類文字對新手意義不大），僅顯示對新手友善的重點資訊
+        display_cols = [c for c in ["指標（代號）", "最新", "漲跌幅／解讀", "對台股"] if c in show.columns]
 
         # 手機版顏色判讀：
         # 依該列「漲跌幅」決定整列文字顏色：
         # 上漲＝紅色，下跌＝綠色，平盤＝白色。
         # 台股慣用色系：紅漲、綠跌。
         def _row_color_by_change(x):
+            """
+            根據漲跌幅回傳文字顏色，使用柔和的配色。
+            - 平盤顯示灰白色 (#e5e7eb)
+            - 上漲用柔和的紅色 (#f87171)
+            - 下跌用柔和的綠色 (#6ee7b7)，較原色(#4ade80)更柔和。
+            """
             v = to_float(x)
             if v is None or abs(v) < 0.0001:
-                return "#e5e7eb"  # 平盤白色
-            return "#f87171" if v > 0 else "#4ade80"  # 上漲紅色、下跌綠色
+                return "#e5e7eb"
+            return "#f87171" if v > 0 else "#6ee7b7"
 
-        row_colors = show["漲跌幅"].apply(_row_color_by_change).to_dict() if "漲跌幅" in show.columns else {}
-
+        # 依據漲跌幅及「對台股」判斷，針對不同欄位設定文字顏色。
+        # 計算每列漲跌幅對應的顏色：上漲紅、下跌綠、平盤灰。
+        price_colors: Dict[int, str] = {}
+        if "漲跌幅" in show.columns:
+            for idx2, val in show["漲跌幅"].items():
+                v = to_float(val)
+                if v is None or abs(v) < 1e-4:
+                    price_colors[idx2] = "#e5e7eb"
+                elif v > 0:
+                    price_colors[idx2] = "#f87171"
+                else:
+                    price_colors[idx2] = "#6ee7b7"
+        # 計算每列對台股結論的顏色：偏多紅、偏空綠、中性維持原色。
+        verdict_colors: Dict[int, str] = {}
+        if "對台股" in show.columns:
+            for idx2, val in show["對台股"].items():
+                s = str(val or "")
+                if "偏多" in s:
+                    verdict_colors[idx2] = "#f87171"
+                elif "偏空" in s:
+                    verdict_colors[idx2] = "#6ee7b7"
+                else:
+                    verdict_colors[idx2] = "#e5e7eb"
+        # 取出要顯示的欄位並複製，建立 HTML 表格。每欄自訂文字顏色及置中顯示。
         display_df = show[display_cols].copy()
-
-        def _style_external_row(row):
-            color = row_colors.get(row.name, "#e5e7eb")
-            return [f"color: {color}; font-weight: 700;" for _ in row]
-
-        st.dataframe(
-            display_df.style.apply(_style_external_row, axis=1),
-            use_container_width=True,
-            hide_index=True,
-        )
+        html_parts: List[str] = []
+        html_parts.append("<div class='st-dark-table-container'><table class='st-dark-table'>")
+        # 表頭
+        html_parts.append("<thead><tr>")
+        for col in display_df.columns:
+            html_parts.append(f"<th style='text-align:center;'>{col}</th>")
+        html_parts.append("</tr></thead><tbody>")
+        # 資料列
+        for idx2, row in display_df.iterrows():
+            html_parts.append("<tr>")
+            for col, val in row.items():
+                cell = "" if (val is None or (isinstance(val, float) and pd.isna(val))) else str(val)
+                # 決定本格的文字顏色
+                if col in ["漲跌幅／解讀", "漲跌幅"]:
+                    ccolor = price_colors.get(idx2, "#e5e7eb")
+                elif col == "對台股":
+                    ccolor = verdict_colors.get(idx2, "#e5e7eb")
+                else:
+                    ccolor = "#e5e7eb"
+                html_parts.append(
+                    f"<td style='color: {ccolor}; font-weight: 700; text-align:center;'>{cell}</td>"
+                )
+            html_parts.append("</tr>")
+        html_parts.append("</tbody></table></div>")
+        html_content = "".join(html_parts)
+        st.markdown(html_content, unsafe_allow_html=True)
 
     errors = external.get("errors") or []
     if errors:
@@ -4132,8 +4344,49 @@ def render_news_snapshot(snapshot: Dict[str, Any]) -> None:
             if part.empty:
                 st.caption("目前沒有相關新聞。")
             else:
-                display_cols = [c for c in ["時間", "來源", "判斷", "標題", "影響"] if c in part.columns]
-                st.dataframe(part[display_cols].head(12), use_container_width=True, hide_index=True)
+                # 合併「時間」與「來源」欄位，顯示於同一欄位中，上排時間，下排來源。
+                if not part.empty:
+                    def _combine_time_source(r):
+                        tm = str(r.get("時間", "") or "").strip()
+                        src = str(r.get("來源", "") or "").strip()
+                        return f"{tm}<br/><span style='font-size:0.8em;'>{src}</span>" if src else tm
+                    if "時間" in part.columns or "來源" in part.columns:
+                        part["時間／來源"] = part.apply(_combine_time_source, axis=1)
+                # 移除影響欄位，並選擇顯示欄位
+                display_cols = [c for c in ["時間／來源", "判斷", "標題"] if c in part.columns]
+                # 將資料截取前 12 筆，轉為深色樣式的 HTML 表格。
+                sub_df = part[display_cols].head(12).copy()
+                # 預先為「判斷」欄位決定顏色：偏多紅色、偏空綠色，其餘灰白。
+                verdict_colors: Dict[int, str] = {}
+                if "判斷" in sub_df.columns:
+                    for idx3, val in sub_df["判斷"].items():
+                        s = str(val or "")
+                        if "偏多" in s:
+                            verdict_colors[idx3] = "#f87171"
+                        elif "偏空" in s:
+                            verdict_colors[idx3] = "#6ee7b7"
+                        else:
+                            verdict_colors[idx3] = "#e5e7eb"
+                # 組裝 HTML 表格，套用 st-dark-table 樣式且置中顯示。
+                html_parts2: List[str] = []
+                html_parts2.append("<div class='st-dark-table-container'><table class='st-dark-table'>")
+                html_parts2.append("<thead><tr>")
+                for col2 in sub_df.columns:
+                    html_parts2.append(f"<th style='text-align:center;'>{col2}</th>")
+                html_parts2.append("</tr></thead><tbody>")
+                for idx3, row2 in sub_df.iterrows():
+                    html_parts2.append("<tr>")
+                    for col2, val2 in row2.items():
+                        cell2 = "" if (val2 is None or (isinstance(val2, float) and pd.isna(val2))) else str(val2)
+                        if col2 == "判斷":
+                            ccolor2 = verdict_colors.get(idx3, "#e5e7eb")
+                        else:
+                            ccolor2 = "#e5e7eb"
+                        html_parts2.append(f"<td style='color: {ccolor2}; font-weight: 700; text-align:center;'>{cell2}</td>")
+                    html_parts2.append("</tr>")
+                html_parts2.append("</tbody></table></div>")
+                html2 = "".join(html_parts2)
+                st.markdown(html2, unsafe_allow_html=True)
 
     errors = news.get("errors") or []
     if errors:
