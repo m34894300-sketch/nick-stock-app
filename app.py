@@ -3156,17 +3156,33 @@ def _parse_twse_money_value(v: Any) -> Optional[float]:
 
 
 def _twse_api_json(url: str, params: Dict[str, Any]) -> Tuple[Optional[Any], str]:
-    try:
-        r = requests.get(url, params=params, timeout=REQUEST_TIMEOUT, headers={"User-Agent": "Mozilla/5.0"})
-        if r.status_code != 200:
-            return None, f"HTTP {r.status_code}"
-        js = r.json()
-        return js, ""
-    except Exception as e:
-        return None, str(e)
+    """TWSE API helper with small retry.
+
+    fix24:
+    Streamlit Cloud / iPad WebView 偶發 TWSE API timeout 或回傳空資料。
+    這裡加上較完整 headers 與 2 次短重試，降低盤後法人資料變成空白的機率。
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1",
+        "Accept": "application/json,text/plain,*/*",
+        "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+        "Referer": "https://www.twse.com.tw/",
+    }
+    last_err = ""
+    for attempt in range(2):
+        try:
+            r = requests.get(url, params=params, timeout=max(REQUEST_TIMEOUT, 12), headers=headers)
+            if r.status_code != 200:
+                last_err = f"HTTP {r.status_code}"
+                continue
+            js = r.json()
+            return js, ""
+        except Exception as e:
+            last_err = str(e)
+    return None, last_err
 
 
-def fetch_twse_institutional_amount(date: Optional[datetime] = None, lookback_days: int = 7) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def fetch_twse_institutional_amount(date: Optional[datetime] = None, lookback_days: int = 14) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """抓 TWSE 三大法人買賣超金額。
 
     僅抓上市 TWSE，因為加權指數主體是上市市場。
@@ -3482,9 +3498,23 @@ def update_market(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     # 盤後資金結構：跟大盤資料一起更新，避免總覽頁缺法人買賣超。
-    inst_data, inst_status = fetch_twse_institutional_amount()
+    # fix24:
+    # - Streamlit Cloud / 不同裝置偶發 TWSE 抓取失敗時，不要把畫面變成外資/投信/自營商全是「—」。
+    # - 若本次抓取失敗，但快照裡有上次成功資料，就沿用上次成功資料並清楚標示。
+    _prev_inst = snapshot.get("institutional") or snapshot.get("institutional_last_success") or {}
+    inst_data, inst_status = fetch_twse_institutional_amount(lookback_days=14)
     if inst_data:
         snapshot["institutional"] = inst_data
+        snapshot["institutional_last_success"] = inst_data
+    else:
+        _has_prev_inst = any(to_float((_prev_inst or {}).get(k)) is not None for k in ["foreign", "investment_trust", "dealer", "total_inst"])
+        if _has_prev_inst:
+            snapshot["institutional"] = _prev_inst
+            _prev_date = str((_prev_inst or {}).get("date", "") or "")
+            _raw_note = inst_status.get("note", "本次法人資料抓取失敗")
+            inst_status = status_item("partial", True, f"{_raw_note}｜沿用上次成功法人資料 {_prev_date}")
+        else:
+            snapshot["institutional"] = {}
     statuses["盤後資金結構"] = inst_status
 
     snapshot["statuses"] = statuses
