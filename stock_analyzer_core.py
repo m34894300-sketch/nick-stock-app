@@ -26,6 +26,66 @@ APP_ICON_PATH = "/mnt/data/ghostwriter_images/context/c1228815-b798-5b0e-8de1-d5
 APP_BANNER_PATH = "/mnt/data/ghostwriter_images/context/2b24d5b4-9de2-5206-8588-e31a1db10e69.png"
 
 
+# ─────────────────────────────────────────────
+# Nick 私人區塊密碼鎖
+# 用途：APP 可以分享給客戶，但內部法醫模型 / 原始資料不直接顯示。
+# 密碼優先讀取 Replit Secrets：PRIVATE_BLOCK_PASSWORD
+# 若 Secrets 未設定，使用下方正式密碼。
+# ─────────────────────────────────────────────
+NICK_PRIVATE_BLOCK_PASSWORD = "m348943"
+
+
+def _nick_get_private_password():
+    try:
+        return str(st.secrets.get("PRIVATE_BLOCK_PASSWORD", NICK_PRIVATE_BLOCK_PASSWORD))
+    except Exception:
+        return NICK_PRIVATE_BLOCK_PASSWORD
+
+
+def nick_private_gate(label: str, key: str) -> bool:
+    """回傳 True 才允許 render 內部區塊內容。
+
+    V8.5.17 修正：
+    - 不使用 st.rerun()，避免解鎖後跳回輸入首頁。
+    - 使用 st.form，輸入密碼時不會每打一個字就重新跑整個 App。
+    - 解鎖狀態存在 session_state，同一次瀏覽期間不用重複輸入。
+    """
+    unlock_key = f"nick_private_unlocked_{key}"
+    if st.session_state.get(unlock_key, False):
+        st.success(f"🔓 {label} 已解鎖")
+        return True
+
+    st.markdown(
+        f"""
+        <div style="border:1px solid rgba(96,165,250,.35);background:rgba(15,23,42,.55);border-radius:14px;padding:14px 16px;margin:6px 0 10px 0;">
+            <div style="font-size:1.05rem;font-weight:900;color:#e5e7eb;">🔒 {label}</div>
+            <div style="font-size:.92rem;color:#94a3b8;margin-top:4px;">這是 Nick 內部判斷區塊，輸入密碼後才會顯示內容。</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.form(key=f"nick_private_form_{key}", clear_on_submit=False):
+        pw = st.text_input(
+            "輸入密碼",
+            type="password",
+            key=f"nick_private_pw_{key}",
+            placeholder="請輸入密碼",
+        )
+        submitted = st.form_submit_button("解鎖", use_container_width=True)
+
+    if submitted:
+        if str(pw).strip() == _nick_get_private_password():
+            st.session_state[unlock_key] = True
+            st.success(f"🔓 {label} 已解鎖")
+            return True
+        else:
+            st.error("密碼錯誤，請再確認。")
+            return False
+
+    return False
+
+
 def _img_file_to_data_uri(path):
     try:
         suffix = str(path).lower().split(".")[-1]
@@ -1653,10 +1713,12 @@ div[data-baseweb="tag"] * {
 .vm-chip{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.075);border-radius:12px;padding:9px 10px;min-height:54px}
 .vm-lbl{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10);color:#d1d5db;font-size:11px;font-weight:700;line-height:1.1;margin-bottom:8px}
 .vm-val{font-size:15px;font-weight:850;color:#f0f6fc;line-height:1.25}
+.vm-val-cream{color:#FACC15!important}
 .vm-note{color:#6e7681;font-size:11px;line-height:1.25;margin-top:3px}
 .vm-sr-line{font-size:15px;font-weight:850;line-height:1.28}
 .vm-sr-support{color:#7bc47f}
 .vm-sr-pressure{color:#df7f7f;margin-top:4px}
+.vm-sr-key{color:#FACC15;margin-top:4px}
 /* ── Info grid ── */
 .news-box{background:#111827;border:1px solid #263042;border-radius:16px;padding:13px 14px;margin:12px 0}
 .news-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
@@ -2550,6 +2612,9 @@ def fetch_news_snapshot(stock, name, limit=4):
         # 低品質來源：若沒有 A 級財報字眼，不可排前面。
         low_sources = ["CMoney", "Yahoo股市", "奇摩股市", "玩股網", "股市爆料同學會", "鉅亨買基金"]
         is_low_source = any(ls in s for ls in low_sources)
+        # fix20：CMoney 常混入個股概覽 / 技術文 / 轉載文，不再進入主要新聞欄。
+        if "CMoney" in s:
+            return "C", 80, "C級：CMoney 來源僅作備援，不作主要新聞"
 
         a_kw = [
             "月營收", "合併營收", "累計營收", "營收", "財報", "季報", "EPS", "每股盈餘",
@@ -4336,10 +4401,11 @@ def build_15s_read(
     try:
         for r in news_rows:
             title = r.get("title") if isinstance(r, dict) else ""
-            _bad_title = any(k in str(title) for k in ["個股概覽", "長黑K", "分點", "同學會", "爆料"])
-            if _bad_title:
-                continue
             source = r.get("source") if isinstance(r, dict) else ""
+            _bad_title = any(k in str(title) for k in ["個股概覽", "長黑K", "分點", "同學會", "爆料"])
+            _bad_source = any(k in str(source) for k in ["CMoney", "股市爆料同學會"])
+            if _bad_title or _bad_source:
+                continue
             date = r.get("date") if isinstance(r, dict) else ""
             if title:
                 title = str(title)
@@ -5157,6 +5223,11 @@ def fetch_inst(stock):
         foreign_net5_lot = int(round(_type5[_type5["investor_zh"] == "外資"]["net"].sum() / 1000))
         trust_net5_lot = int(round(_type5[_type5["investor_zh"] == "投信"]["net"].sum() / 1000))
 
+        _last20_dates = set(last20["date"].tolist())
+        _type20 = df[df["date"].isin(_last20_dates)].copy()
+        foreign_net20_lot = int(round(_type20[_type20["investor_zh"] == "外資"]["net"].sum() / 1000))
+        trust_net20_lot = int(round(_type20[_type20["investor_zh"] == "投信"]["net"].sum() / 1000))
+
     daily_out = daily.copy()
     daily_out["net_lot"] = (daily_out["net"] / 1000).round(0).astype("Int64")
     return {
@@ -5164,6 +5235,8 @@ def fetch_inst(stock):
         "net5_lot": int(round(last5["net"].sum() / 1000)),
         "foreign_net5_lot": foreign_net5_lot,
         "trust_net5_lot": trust_net5_lot,
+        "foreign_net20_lot": locals().get("foreign_net20_lot"),
+        "trust_net20_lot": locals().get("trust_net20_lot"),
         "net20_lot": int(round(last20["net"].sum() / 1000)),
         "positive_days_5": int((last5["net"] > 0).sum()),
         "negative_days_5": int((last5["net"] < 0).sum()),
@@ -6091,6 +6164,8 @@ def judge_chip(inst):
         }
     n5 = inst.get("net5_lot")
     n20 = inst.get("net20_lot")
+    f5 = inst.get("foreign_net5_lot")
+    f20 = inst.get("foreign_net20_lot")
     pos5 = inst.get("positive_days_5", 0)
     pos20 = inst.get("positive_days_20", 0)
     sell = inst.get("consecutive_sell", 0)
@@ -6099,6 +6174,17 @@ def judge_chip(inst):
             "score": 0,
             "bias": "中性",
             "text": "法人資料不足",
+            "limit_attack": False,
+            "limit_focus": False,
+        }
+    # fix20｜低毛利平台外資吃貨：若外資 20 日大買，對 Attack / 小倉觀察加分。
+    # 這不是 Focus 放行，只代表籌碼有主導資金承接。
+    if f20 is not None and f20 > 50000 and pos20 >= 12:
+        _f5_txt = f"，近 5 日外資 {f5:+,} 張" if f5 is not None else ""
+        return {
+            "score": 3,
+            "bias": "偏多",
+            "text": f"外資近 20 日明顯買超 {f20:+,} 張{_f5_txt}；近 20 日買進 {pos20}/20 天",
             "limit_attack": False,
             "limit_focus": False,
         }
@@ -6413,19 +6499,24 @@ def valuation_interval_warnings(val):
         if r and r[0] is not None and r[1] is not None:
             valid.append((name, (min(r[0], r[1]), max(r[0], r[1]))))
     valid = sorted(valid, key=lambda x: x[1][0])
+    has_overlap = False
+    has_gap = False
     for i in range(len(valid) - 1):
-        left_name, left = valid[i]
-        right_name, right = valid[i + 1]
+        _left_name, left = valid[i]
+        _right_name, right = valid[i + 1]
         if left[1] > right[0]:
-            warnings.append(
-                f"估值區間提醒：{left_name} 與 {right_name} 有重疊，現價區間需人工複核。"
-            )
+            has_overlap = True
         elif left[1] < right[0]:
             gap_pct = pct_change(right[0], left[1])
             if gap_pct is not None and gap_pct > 5:
-                warnings.append(
-                    f"估值區間提醒：{left_name} 與 {right_name} 中間有 {fmp(gap_pct)} 空洞，若現價落在夾層需保守判斷。"
-                )
+                has_gap = True
+    if has_overlap or has_gap:
+        if has_overlap and has_gap:
+            warnings.append("估值區間提醒：部分區間重疊或存在夾層，代表市場可能正在重評或模型區間接近；請搭配營收、EPS、籌碼與買點確認，不可單靠估值決定買賣。")
+        elif has_overlap:
+            warnings.append("估值區間提醒：部分區間有重疊，代表市場可能正在重評或模型區間接近；請搭配營收、EPS、籌碼與買點確認，不可單靠估值決定買賣。")
+        else:
+            warnings.append("估值區間提醒：部分區間中間存在夾層，若現價落在夾層，請搭配營收、EPS、籌碼與買點確認，不可單靠估值決定買賣。")
     return warnings
 
 
@@ -7490,6 +7581,27 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
         and rr["verdict"] in ["成立", "部分成立"]
         and rj["score"] >= 1
     )
+    # fix18｜低毛利大型 AI 製造平台 Core 例外：
+    # 適用鴻海、廣達、緯創、英業達、仁寶等 AI server / cloud / networking 製造平台。
+    # 低毛利會限制「純金庫級、Focus、重押與 PE 上限」，但若營收、EPS、營益率與 AI 結構成長有驗證，
+    # 不得因毛利率低或營運資金壓力而直接 Core No。
+    low_margin_platform_core_pass = (
+        not core_hard_block
+        and not leader_core_pass
+        and not growth_core_pass
+        and not rerating_growth_core_pass
+        and model_key == "low_margin_assembly"
+        and fj["report"] == "通過"
+        and fj["eps"] in ["有", "部分有"]
+        and fj["revenue_to_eps"] in ["有", "部分有"]
+        and fj["margin"] in ["有", "普通"]
+        and fj["growth_quality"] in ["通過", "部分通過"]
+        and rr["verdict"] in ["成立", "部分成立"]
+        and rj["score"] >= 2
+        and fj.get("treasury_score", 0) >= 5
+        and not fj.get("limit_core", False)
+    )
+
     # ── 路徑 C：穩健優質股 Core ────────────────────────────
     _defensive_models = ["dividend_utility", "financial", "semi_leader"]
     defensive_core_pass = (
@@ -7505,7 +7617,7 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
         and fj["cashflow"] != "不配合"
         and rr["verdict"] in ["成立", "部分成立"]
     )
-    core_normal_pass = leader_core_pass or growth_core_pass or rerating_growth_core_pass or defensive_core_pass
+    core_normal_pass = leader_core_pass or growth_core_pass or rerating_growth_core_pass or low_margin_platform_core_pass or defensive_core_pass
     # ── 路徑 D：高品質成長收編（含 fingerprint 升級股票）────────────
     high_quality_growth_core_pass = (
         not core_normal_pass
@@ -7546,6 +7658,8 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
         if growth_core_pass
         else "高成長重評正式收編"
         if rerating_growth_core_pass
+        else "低毛利 AI 製造平台正式收編"
+        if low_margin_platform_core_pass
         else "穩健優質股正式收編"
         if defensive_core_pass
         else "高品質成長正式收編"
@@ -7561,6 +7675,8 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
         if growth_core_pass
         else "高成長重評 Core 收編：財報本體通過、營收有轉 EPS、毛利/營益率可支撐、估值重評成立；現金流 / 存貨 / 應收只限制 Focus 與重押，不直接否決 Core。"
         if rerating_growth_core_pass
+        else "低毛利 AI 製造平台 Core 收編：AI server / cloud / networking 帶動營收、營益率與 EPS 改善；低毛利與營運資金壓力限制 Focus、重押與 PE 上限，但不直接否決 Core。"
+        if low_margin_platform_core_pass
         else "穩健優質股 Core 收編：財報符合、品質高、金庫分數達標、現金流穩健、估值重評支撐。"
         if defensive_core_pass
         else "高品質成長收編（路徑 D）：財報品質高、金庫≥8、EPS/毛利/現金流全數通過、成長不惡化、估值重評支撐；負債/存貨異常僅警示，不直接擋 Core。"
@@ -7569,6 +7685,48 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
         if core_candidate
         else "未達 Core 收編標準，不能正式收編。"
     )
+
+    # fix19｜低毛利 AI 製造平台 Core 最後防呆：
+    # 有些標的（例如鴻海）會因 low_margin / treasury_score / limit_core 舊條件而讓前面路徑沒有通過，
+    # 但若財報本體已通過、營收有轉 EPS、成長與估值重評成立，就不應再輸出 Core No。
+    # 這條只修「公司能否收編」，不放寬 Focus / 重押 / PE 上限。
+    low_margin_platform_core_override = (
+        core == "No"
+        and model_key == "low_margin_assembly"
+        and fj["report"] == "通過"
+        and fj["eps"] in ["有", "部分有"]
+        and fj["revenue_to_eps"] in ["有", "部分有"]
+        and fj["growth_quality"] in ["通過", "部分通過"]
+        and rr["verdict"] in ["成立", "部分成立"]
+        and rj["score"] >= 2
+        and not (fj["eps"] == "沒有" or fj["report"] == "不通過")
+    )
+    if low_margin_platform_core_override:
+        low_margin_platform_core_pass = True
+        core_normal_pass = True
+        core = "Yes"
+        core_status = "低毛利 AI 製造平台正式收編"
+        core_reason = (
+            "低毛利 AI 製造平台 Core 收編：財報本體通過，AI server / cloud / networking 帶動營收、營益率與 EPS 改善；"
+            "低毛利、存貨與應收只限制 Focus、重押與 PE 上限，不直接否決 Core。"
+        )
+
+    # fix20｜低毛利平台外資吃貨加分：
+    # 鴻海這類低毛利 AI 製造平台，只要外資 20 日明顯買超且買進天數夠多，
+    # 可以提高 Attack / 小倉觀察分數；但不放寬 Focus 與重押。
+    _foreign20_lot = inst.get("foreign_net20_lot") if inst else None
+    _foreign5_lot = inst.get("foreign_net5_lot") if inst else None
+    _net20_lot = inst.get("net20_lot") if inst else None
+    _pos20_days = inst.get("positive_days_20", 0) if inst else 0
+    low_margin_foreign_accumulation = (
+        model_key == "low_margin_assembly"
+        and (
+            (_foreign20_lot is not None and _foreign20_lot > 50000)
+            or (_net20_lot is not None and _net20_lot > 100000)
+        )
+        and _pos20_days >= 12
+    )
+
     tech_ok = pj["score"] >= 1
 
     # ── Attack / Focus 交易窗口版（未來約 1 週可觀察） ──
@@ -7703,6 +7861,17 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
     elif breakout_attack:
         attack = "Yes"
         attack_type = "突破型｜已觸發" if breakout_now else "突破型｜準備攻擊"
+    elif (
+        'low_margin_foreign_accumulation' in locals()
+        and low_margin_foreign_accumulation
+        and core == "Yes"
+        and chip_ok
+        and catalyst_ok
+        and trend_ok
+        and near_breakout
+    ):
+        attack = "Yes"
+        attack_type = "外資吃貨型｜壓力前小倉"
     else:
         attack = "No"
         attack_type = "無"
@@ -7824,6 +7993,9 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
     elif focus == "Yes":
             action = "可回檔買" if ps in ["低估", "偏低估", "合理"] else "等回檔"
             why = "Focus 成立，未來一週值得優先觀察買點；突破型仍要看買點與風報比"
+    elif core == "Yes" and attack == "Yes" and model_key == "low_margin_assembly" and 'low_margin_foreign_accumulation' in locals() and low_margin_foreign_accumulation:
+            action = "小倉試單"
+            why = "財報通過，Core Yes；低毛利 AI 製造平台有外資吃貨跡象，Attack 小倉觀察，Focus No；靠近壓力不重押"
     elif core == "Yes" and attack == "Yes" and attack_type.startswith("回檔型"):
             action = "小倉試單"
             why = "財報通過，Core Yes；Attack 回檔型 Yes，Focus No；目前可小倉測承接，但不適合重押"
@@ -7872,6 +8044,11 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
             warnings.append("Focus No 原因：" + "、".join(focus_block_reasons[:4]))
     if working_capital_only_quality_drag:
             warnings.append("Core 提醒：財報本體可支撐收編，但現金流 / 存貨 / 應收限制 Focus 與重押，不等於財報不通過。")
+    if 'low_margin_platform_core_pass' in locals() and low_margin_platform_core_pass:
+            _lm_msg = "低毛利平台提醒：Core Yes，但屬低毛利大型 AI 製造平台；低毛利 / 存貨 / 應收限制 Focus、重押與 PE 上限，不是高毛利金庫股。"
+            if 'low_margin_foreign_accumulation' in locals() and low_margin_foreign_accumulation:
+                _lm_msg += " 外資近 20 日明顯買超，可提高小倉觀察分數，但不等於 Focus 重押。"
+            warnings.append(_lm_msg)
     if fin and fin.get("eps_cumulative_suspect"):
             warnings.append(
                 "EPS 防呆提醒：近四季 EPS 疑似出現累計值型態，系統已嘗試轉成單季 EPS，但估值仍需人工複核。"
@@ -9518,20 +9695,21 @@ def render_volume_k_sr_chart(price, stock, name, volume_k_lines=None, expanded=T
         )
         if _volume_k_lines:
             with st.expander("📌 量K來源明細", expanded=False):
-                st.caption("規則：近120日內，成交量 > 5日均量且 > 前一日量；紅K取低點，綠K取高點；十字K先略過。")
-                _sr_rows = []
-                for _idx, _line in enumerate(_volume_k_lines, start=1):
-                    _sr_rows.append({
-                        "重要性": _idx,
-                        "類型": _line.get("kind"),
-                        "價位": fmt_price(_line.get("price")),
-                        "離現價": fmp(pct_change(_line.get("price"), _close)) if _close else "—",
-                        "來源K棒": pd.to_datetime(_line.get("source_date")).strftime("%Y-%m-%d") if _line.get("source_date") is not None else "—",
-                        "來源判斷": _line.get("type"),
-                        "量/5日均量": f"{_line.get('volume_ratio_ma5'):.2f}x" if _line.get("volume_ratio_ma5") is not None else "—",
-                        "量/前日量": f"{_line.get('volume_ratio_prev'):.2f}x" if _line.get("volume_ratio_prev") is not None else "—",
-                    })
-                st.dataframe(pd.DataFrame(_sr_rows), use_container_width=True, hide_index=True)
+                if nick_private_gate("量K來源明細", f"volume_k_sources_{abs(hash(str(expander_title))) % 100000}"):
+                    st.caption("規則：近120日內，成交量 > 5日均量且 > 前一日量；紅K取低點，綠K取高點；十字K先略過。")
+                    _sr_rows = []
+                    for _idx, _line in enumerate(_volume_k_lines, start=1):
+                        _sr_rows.append({
+                            "重要性": _idx,
+                            "類型": _line.get("kind"),
+                            "價位": fmt_price(_line.get("price")),
+                            "離現價": fmp(pct_change(_line.get("price"), _close)) if _close else "—",
+                            "來源K棒": pd.to_datetime(_line.get("source_date")).strftime("%Y-%m-%d") if _line.get("source_date") is not None else "—",
+                            "來源判斷": _line.get("type"),
+                            "量/5日均量": f"{_line.get('volume_ratio_ma5'):.2f}x" if _line.get("volume_ratio_ma5") is not None else "—",
+                            "量/前日量": f"{_line.get('volume_ratio_prev'):.2f}x" if _line.get("volume_ratio_prev") is not None else "—",
+                        })
+                    st.dataframe(pd.DataFrame(_sr_rows), use_container_width=True, hide_index=True)
         else:
             st.caption("📌 量K壓力支撐線：近120日暫無符合條件的紅K/綠K來源。")
 
@@ -9801,7 +9979,7 @@ def build_buy_zone_summary(price, a, buy_point_rows=None):
                 _dist = (close / _bz_high - 1) * 100 if _bz_high else None
                 if _dist is not None and _dist <= 3:
                     main = f"已高於主買區｜等回測 {new_zone}"
-                    condition = f"{_buy_ref_label}高於主買區上緣約 {_fmt_signed_pct(_dist)}，目前只能小倉觀察或等回測，不可寫成已到買點；跌破 {wrong} 先降風險。"
+                    condition = f"{_buy_ref_label}高於主買區上緣約 {_fmt_signed_pct(_dist)}，目前只能小倉觀察或等回測。"
                 elif _dist is not None and _dist <= 6:
                     main = f"買點已過｜等回測 {new_zone}"
                     condition = f"{_buy_ref_label}高於買點上緣約 {_fmt_signed_pct(_dist)}，位置已不漂亮，等回測買點區再評估。"
@@ -9876,7 +10054,7 @@ def build_decision_cards(a, price, current_zone, data_quality, buy_zone=None, sr
         {"卡片": "優先觀察", "重點": focus_state, "說明": focus_note},
         {"卡片": "攻擊機會", "重點": attack_text, "說明": "看未來一週是否靠近買點 / 突破觸發"},
         {"卡片": "買點區間", "重點": buy_zone.get("main", "資料不足"), "說明": buy_zone.get("condition", "顯示主要觀察買點與進場條件")},
-        {"卡片": "壓力支撐", "重點": sr_levels.get("summary", "資料不足"), "說明": "先看下方能不能守住，再看上方能不能突破"},
+        {"卡片": "支撐壓力", "重點": sr_levels.get("summary", "資料不足"), "說明": "先看下方能不能守住，再看上方能不能突破"},
         {"卡片": "卡關原因", "重點": block_text, "說明": "Focus No 時用來判斷是模型太嚴還是真的不適合"},
         {"卡片": "買進勝率", "重點": win_text, "說明": "需搭配買點品質與停損，不是保證獲利"},
         {"卡片": "資料品質", "重點": data_quality.get("grade", "中"), "說明": data_quality.get("message", "")},
@@ -10389,6 +10567,8 @@ def clear_inputs_callback():
     st.session_state["holding_cost_input"] = ""
     st.session_state.pop("autofill_msg", None)
     st.session_state.pop("auto_run_hot_stock", None)
+    st.session_state.pop("nick_single_analysis_keep_alive", None)
+    st.session_state.pop("nick_single_analysis_identity", None)
 
 # 輸入區：左欄放三個輸入框，右欄放熱門標的，避免手機版右側撐高後左側出現大空白。
 _input_left, _input_right = st.columns([1, 1], gap="small")
@@ -10513,7 +10693,25 @@ with st.expander("🧭 Nick CAF 選股雷達", expanded=False):
     _batch_run = st.button("開始 Nick CAF 選股雷達", use_container_width=True)
 
 _auto_run = st.session_state.pop("auto_run_hot_stock", False)
-run = _manual_run or _auto_run
+
+# V8.5.17：避免私人區塊密碼送出後，Streamlit rerun 回到首頁。
+# 只要目前輸入與上一筆分析相同，後續按解鎖、切分頁、表單送出時都維持單檔分析狀態。
+_current_single_identity = "|".join([
+    clean_text(stock_code_raw),
+    clean_text(stock_name_raw),
+    clean_text(holding_cost_raw),
+])
+if _manual_run or _auto_run:
+    st.session_state["nick_single_analysis_keep_alive"] = True
+    st.session_state["nick_single_analysis_identity"] = _current_single_identity
+
+_resume_single_analysis = (
+    st.session_state.get("nick_single_analysis_keep_alive", False)
+    and st.session_state.get("nick_single_analysis_identity") == _current_single_identity
+    and bool(clean_text(stock_code_raw) or clean_text(stock_name_raw))
+)
+
+run = _manual_run or _auto_run or _resume_single_analysis
 
 # 名稱搜尋多筆處理
 if (
@@ -11004,8 +11202,44 @@ _fund_support_ui = build_fundamental_support_summary(
 _fund_support_value = _html.escape(str(_fund_support_ui.get("card_value", "資料不足")))
 _fund_support_note = _html.escape(str(_fund_support_ui.get("card_note", "")))
 _fin_radar_ui = (a.get("fin_j", {}) or {}).get("financial_radar", {}) or {}
-_fin_radar_value = _html.escape(str(_fin_radar_ui.get("summary", "資料不足")))
+_fin_radar_value_raw = str(_fin_radar_ui.get("summary", "資料不足"))
+_fin_radar_value = _html.escape(_fin_radar_value_raw)
 _fin_radar_note = _html.escape(str(_fin_radar_ui.get("quick", "")))
+
+def _vm_val_class(_is_cream=False):
+    return "vm-val vm-val-cream" if _is_cream else "vm-val"
+
+_core_value_raw = "可收編" if a["core"] == "Yes" else "先觀察"
+_core_value = _html.escape(_core_value_raw)
+_core_val_cls = _vm_val_class(a["core"] == "Yes" or _core_value_raw in ["可通過", "可收編"])
+
+_treasury_val_cls = _vm_val_class(str(_treasury) == "金庫級")
+
+try:
+    _fin_score_raw = _fin_radar_ui.get("overall_score", None)
+    _fin_score_num = float(_fin_score_raw) if _fin_score_raw is not None else None
+except Exception:
+    _fin_score_num = None
+_fin_val_cls = _vm_val_class(_fin_score_num is not None and _fin_score_num >= 80)
+
+_attack_value_raw = str(attack_display_text if attack_display_text != "無" else "等待訊號")
+_attack_value = _html.escape(_attack_value_raw)
+_attack_val_cls = _vm_val_class("距離買點約" in _attack_value_raw or "最近支撐" in _attack_value_raw)
+
+_fund_support_value_raw = str(_fund_support_ui.get("card_value", "資料不足"))
+_fund_gap_ok = False
+try:
+    _m = re.search(r"([+-]?\d+(?:\.\d+)?)\s*%", _fund_support_value_raw)
+    if _m:
+        _fund_gap_ok = abs(float(_m.group(1))) <= 20
+except Exception:
+    _fund_gap_ok = False
+_fund_support_value = _html.escape(_fund_support_value_raw)
+_fund_support_val_cls = _vm_val_class(_fund_gap_ok)
+
+_plan_ui = a.get("plan", {}) or {}
+_key_pressure_ui = _plan_ui.get("key_pressure_zone") or _plan_ui.get("key_pressure") or ""
+_key_pressure_text = _html.escape(f"關鍵壓力 {_key_pressure_ui}") if _key_pressure_ui else ""
 
 _esc_action = _html.escape(str(a["action"]))
 _esc_why = _html.escape(str(a["why"]))
@@ -11043,13 +11277,13 @@ st.markdown(
     </div>
   </div>
   <div class="v-metrics">
-    <div class="vm-chip"><div class="vm-lbl">基本面</div><div class="vm-val">{"可收編" if a["core"] == "Yes" else "先觀察"}</div><div class="vm-note">看這家公司體質好不好</div></div>
-    <div class="vm-chip"><div class="vm-lbl">財報體質</div><div class="vm-val">{_esc_treasury}</div><div class="vm-note">財報：{_fj["report"]}</div></div>
-    <div class="vm-chip"><div class="vm-lbl">財務能力</div><div class="vm-val">{_fin_radar_value}</div><div class="vm-note">{_fin_radar_note}</div></div>
-    <div class="vm-chip"><div class="vm-lbl">短線機會</div><div class="vm-val">{attack_display_text if attack_display_text != "無" else "等待訊號"}</div><div class="vm-note">先看短線有沒有發動條件</div></div>
+    <div class="vm-chip"><div class="vm-lbl">基本面</div><div class="{_core_val_cls}">{_core_value}</div><div class="vm-note">看這家公司體質好不好</div></div>
+    <div class="vm-chip"><div class="vm-lbl">財報體質</div><div class="{_treasury_val_cls}">{_esc_treasury}</div><div class="vm-note">財報：{_fj["report"]}</div></div>
+    <div class="vm-chip"><div class="vm-lbl">財務能力</div><div class="{_fin_val_cls}">{_fin_radar_value}</div><div class="vm-note">{_fin_radar_note}</div></div>
+    <div class="vm-chip"><div class="vm-lbl">短線機會</div><div class="{_attack_val_cls}">{_attack_value}</div><div class="vm-note">先看短線有沒有發動條件</div></div>
     <div class="vm-chip"><div class="vm-lbl">波段買點</div><div class="vm-val">{_buy_main}</div><div class="vm-note">{_buy_cond}</div></div>
-    <div class="vm-chip"><div class="vm-lbl">壓支</div><div class="vm-sr-line vm-sr-support">{_sr_support}</div><div class="vm-sr-line vm-sr-pressure">{_sr_pressure}</div></div>
-    <div class="vm-chip"><div class="vm-lbl">基本面支撐</div><div class="vm-val">{_fund_support_value}</div><div class="vm-note">{_fund_support_note}</div></div>
+    <div class="vm-chip"><div class="vm-lbl">支撐壓力</div><div class="vm-sr-line vm-sr-support">{_sr_support}</div><div class="vm-sr-line vm-sr-pressure">{_sr_pressure}</div><div class="vm-sr-line vm-sr-key">{_key_pressure_text}</div></div>
+    <div class="vm-chip"><div class="vm-lbl">基本面支撐</div><div class="{_fund_support_val_cls}">{_fund_support_value}</div><div class="vm-note">{_fund_support_note}</div></div>
   </div>
 </div>
 {_news_html}
@@ -11186,26 +11420,24 @@ with st.expander("查看壓力支撐明細", expanded=False):
     render_sr_table(_sr_rows, gap_label=_sr_gap_label)
 
 with st.expander("🧭 財務能力雷達（法醫底層）", expanded=False):
-    radar = (a.get("fin_j", {}) or {}).get("financial_radar", {}) or {}
-    st.caption("資料來源：FinMind 財報 / 資產負債表 / 現金流量表。這裡是風險篩檢，不是單獨買進理由。")
-    st.markdown(f"**總評：{radar.get('summary', '資料不足')}**")
-    st.write(radar.get("quick", "財務能力資料不足。"))
-    rows = radar.get("rows", [])
-    if rows:
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-    else:
-        st.info("財務能力資料不足，無法產生雷達表。")
+    if nick_private_gate("財務能力雷達（法醫底層）", "financial_radar_forensic"):
+        radar = (a.get("fin_j", {}) or {}).get("financial_radar", {}) or {}
+        st.caption("資料來源：FinMind 財報 / 資產負債表 / 現金流量表。這裡是風險篩檢，不是單獨買進理由。")
+        st.markdown(f"**總評：{radar.get('summary', '資料不足')}**")
+        st.write(radar.get("quick", "財務能力資料不足。"))
+        rows = radar.get("rows", [])
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        else:
+            st.info("財務能力資料不足，無法產生雷達表。")
 
 
-st.caption("主畫面只保留決策必要資訊；完整交易、趨勢細節與模型診斷已收進展開區或技術分頁。")
-
-st.markdown("### 產業估值模型")
 val = a["val"]
 val_auto = a.get("val_auto", {})
 _valuation_check_ui = valuation_forensic_check(
     val, price, a.get("fin_j"), a.get("rerating"), industry_category, analyst_target, current_zone
 )
-st.markdown("### 估值法醫摘要")
+st.markdown("### 估值摘要")
 _conf = _valuation_check_ui.get("confidence", "")
 _conf_icon = {"高": "🟢", "中": "🟡", "低": "🔴", "不適用": "⚪"}.get(_conf, "⚪")
 _target_ref = _valuation_check_ui.get("target_ref", "")
@@ -11225,136 +11457,139 @@ def _short_text(_txt, _limit=46):
 
 st.info(
     f"**{_conf_icon} 估值可信度：{_conf}｜{_valuation_check_ui.get('status', '')}**\n\n"
-    f"{_valuation_check_ui.get('plain', '')}\n\n"
-    f"**估值目標價（參考）：** {_target_ref}"
+    f"{_valuation_check_ui.get('plain', '')}"
 )
-
-_val_cards = [
-    ("估值可信", f"{_conf_icon} {_conf or '-'}", _valuation_check_ui.get("status", "")),
-    ("EPS 基礎", f"{_eps_conf or '-'}", _short_text(_eps_basis, 48)),
-    ("現價 PE", f"TTM {_ttm_pe_txt}", f"Future {_future_pe_txt}｜模型最高 {_model_high_txt}"),
-    ("採用模型", _short_text(_model_name, 18), _short_text(_valuation_method, 44)),
-    ("目標價參考", "僅供參考", _short_text(_target_ref, 52)),
-    ("Focus 影響", _short_text(_focus_effect, 18), "估值只影響買點與風險，不單獨決定買進。"),
-]
-_val_cards_html = '<div class="decision-grid">'
-for _k, _v, _d in _val_cards:
-    _val_cards_html += (
-        '<div class="decision-card">'
-        f'<div class="k">{_html.escape(str(_k))}</div>'
-        f'<div class="v">{_html.escape(str(_v))}</div>'
-        f'<div class="d">{_html.escape(str(_d or "-"))}</div>'
-        '</div>'
-    )
-_val_cards_html += '</div>'
-st.markdown(_val_cards_html, unsafe_allow_html=True)
 
 if _valuation_check_ui.get("warnings"):
     st.warning("估值提醒：" + "；".join(_valuation_check_ui.get("warnings", [])))
 
-with st.expander("展開：完整估值法醫檢查 / 產業模型 / 區間表", expanded=False):
-    st.caption("主畫面只保留決策必要資訊；完整估值細節收在這裡，避免手機版畫面過長。")
-    st.dataframe(
-        pd.DataFrame([
-            {"檢查問題": "這次估值可信嗎？", "系統回答": f"{_valuation_check_ui.get('confidence', '')}｜{_valuation_check_ui.get('status', '')}"},
-            {"檢查問題": "EPS 可信度？", "系統回答": f"{_valuation_check_ui.get('eps_confidence', '')}｜{_valuation_check_ui.get('eps_confidence_reason', '')}"},
-            {"檢查問題": "用什麼 EPS 算？", "系統回答": _valuation_check_ui.get("eps_basis", "")},
-            {"檢查問題": "適合用什麼估值方法？", "系統回答": f"{_valuation_check_ui.get('valuation_method', '')}｜{_valuation_check_ui.get('method_suitability', '')}"},
-            {"檢查問題": "用什麼 PE 算？", "系統回答": _valuation_check_ui.get("pe_basis", "")},
-            {"檢查問題": "現價隱含 PE 合不合理？", "系統回答": _valuation_check_ui.get("implied_pe_text", "")},
-            {"檢查問題": "估值目標價參考？", "系統回答": _valuation_check_ui.get("target_ref", "")},
-            {"檢查問題": "如果估值不可信，Focus 要不要降級？", "系統回答": _valuation_check_ui.get("focus_effect", "")},
-        ]),
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    # ── 自動模型校正結果 ──────────────────────────────────────────
-    if val_auto.get("model_changed"):
-        _orig_n = val_auto.get(
-            "original_model_name", val_auto.get("original_model_key", "")
-        )
-        _new_n = val_auto.get(
-            "selected_model_name", val_auto.get("selected_model_key", "")
-        )
-        _conf_auto = val_auto.get("model_confidence", "")
-        _conf_color = {"高": "🟢", "中": "🟡", "低": "🔴"}.get(_conf_auto, "⚪")
-        st.success(
-            f"**{_conf_color} 系統判斷：估值模型已自動校正（信心：{_conf_auto}）**\n\n"
-            f"{val_auto.get('beginner_message', '')}\n\n"
-            f"⚠️ 操作提醒：估值仍需搭配回檔位置，不代表可以追高"
-        )
+with st.expander("展開：完整估值法醫檢查 / 產業模型", expanded=False):
+    if nick_private_gate("完整估值法醫檢查 / 產業模型", "valuation_forensic_model"):
         st.dataframe(
-            pd.DataFrame(
-                [
-                    {
-                        "項目": "原模型",
-                        "內容": f"{_orig_n}（{val_auto.get('original_model_key', '')}）",
-                    },
-                    {
-                        "項目": "新模型",
-                        "內容": f"{_new_n}（{val_auto.get('selected_model_key', '')}）",
-                    },
-                    {"項目": "切換信心", "內容": _conf_auto},
-                    {"項目": "切換依據", "內容": val_auto.get("model_reason", "")},
-                ]
-            ),
+            pd.DataFrame([
+                {"檢查問題": "這次估值可信嗎？", "系統回答": f"{_valuation_check_ui.get('confidence', '')}｜{_valuation_check_ui.get('status', '')}"},
+                {"檢查問題": "EPS 可信度？", "系統回答": f"{_valuation_check_ui.get('eps_confidence', '')}｜{_valuation_check_ui.get('eps_confidence_reason', '')}"},
+                {"檢查問題": "用什麼 EPS 算？", "系統回答": _valuation_check_ui.get("eps_basis", "")},
+                {"檢查問題": "適合用什麼估值方法？", "系統回答": f"{_valuation_check_ui.get('valuation_method', '')}｜{_valuation_check_ui.get('method_suitability', '')}"},
+                {"檢查問題": "用什麼 PE 算？", "系統回答": _valuation_check_ui.get("pe_basis", "")},
+                {"檢查問題": "現價隱含 PE 合不合理？", "系統回答": _valuation_check_ui.get("implied_pe_text", "")},
+                {"檢查問題": "估值目標價參考？", "系統回答": _valuation_check_ui.get("target_ref", "")},
+                {"檢查問題": "如果估值不可信，Focus 要不要降級？", "系統回答": _valuation_check_ui.get("focus_effect", "")},
+            ]),
             use_container_width=True,
             hide_index=True,
         )
-        st.markdown("---")
-    elif val_auto.get("anomalies"):
-        _anom_txt = "；".join(val_auto["anomalies"])
-        st.warning(
-            f"⚠️ 估值異常提醒：{_anom_txt}\n\n"
-            f"{val_auto.get('model_reason', '')}\n\n"
-            "系統判斷：目前資料不足以改用其他模型，估值請保守看待。"
-        )
 
-    if val.get("ok"):
-        _auto_tag = "（模型自動校正後）" if val_auto.get("model_changed") else ""
-        st.markdown("#### 產業估值模型明細")
-        st.dataframe(
-            pd.DataFrame(
-                [
-                    {"項目": "股票產業類別", "內容": industry_category or "無資料"},
-                    {"項目": f"採用模型{_auto_tag}", "內容": val.get("model_name")},
-                    {"項目": "模型 key", "內容": val.get("model_key")},
-                    {"項目": "主要估值工具", "內容": val.get("model_primary")},
-                    {"項目": "模型提醒", "內容": val.get("model_note")},
-                    {
-                        "項目": "現價 ÷ TTM EPS",
-                        "內容": f"{fmt(val.get('implied_ttm_pe'))}x",
-                    },
-                    {
-                        "項目": "現價 ÷ Future EPS",
-                        "內容": f"{fmt(val.get('implied_future_pe'))}x",
-                    },
-                    {
-                        "項目": "模型最高 PE",
-                        "內容": f"{fmt(val.get('model_high_pe'))}x",
-                    },
-                    {"項目": "模型判斷", "內容": val.get("pe_status")},
-                    {"項目": "目前股價所在區間", "內容": current_zone},
-                ]
-            ),
-            use_container_width=True,
-            hide_index=True,
-        )
-        _zone_title = (
-            "#### 估值區間（模型自動校正後）"
-            if val_auto.get("model_changed")
-            else "#### 估值區間"
-        )
-        st.markdown(_zone_title)
-        st.caption("黃色列會依照目前股價位置自動插入估值表；所有股價區間已依台股跳檔顯示。")
-        if not valuation_df.empty:
-            st.dataframe(
-                style_current_zone(valuation_df),
-                use_container_width=True,
+        # ── 自動模型校正結果 ──────────────────────────────────────────
+        if val_auto.get("model_changed"):
+            _orig_n = val_auto.get(
+                "original_model_name", val_auto.get("original_model_key", "")
             )
+            _new_n = val_auto.get(
+                "selected_model_name", val_auto.get("selected_model_key", "")
+            )
+            _conf_auto = val_auto.get("model_confidence", "")
+            _conf_color = {"高": "🟢", "中": "🟡", "低": "🔴"}.get(_conf_auto, "⚪")
+            st.success(
+                f"**{_conf_color} 系統判斷：估值模型已自動校正（信心：{_conf_auto}）**\n\n"
+                f"{val_auto.get('beginner_message', '')}\n\n"
+                f"⚠️ 操作提醒：估值仍需搭配回檔位置，不代表可以追高"
+            )
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "項目": "原模型",
+                            "內容": f"{_orig_n}（{val_auto.get('original_model_key', '')}）",
+                        },
+                        {
+                            "項目": "新模型",
+                            "內容": f"{_new_n}（{val_auto.get('selected_model_key', '')}）",
+                        },
+                        {"項目": "切換信心", "內容": _conf_auto},
+                        {"項目": "切換依據", "內容": val_auto.get("model_reason", "")},
+                    ]
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.markdown("---")
+        elif val_auto.get("anomalies"):
+            _anom_txt = "；".join(val_auto["anomalies"])
+            st.warning(
+                f"⚠️ 估值異常提醒：{_anom_txt}\n\n"
+                f"{val_auto.get('model_reason', '')}\n\n"
+                "系統判斷：目前資料不足以改用其他模型，估值請保守看待。"
+            )
+
+        if val.get("ok"):
+            _auto_tag = "（模型自動校正後）" if val_auto.get("model_changed") else ""
+            st.markdown("#### 產業估值模型明細")
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {"項目": "股票產業類別", "內容": industry_category or "無資料"},
+                        {"項目": f"採用模型{_auto_tag}", "內容": val.get("model_name")},
+                        {"項目": "模型 key", "內容": val.get("model_key")},
+                        {"項目": "主要估值工具", "內容": val.get("model_primary")},
+                        {"項目": "模型提醒", "內容": val.get("model_note")},
+                        {
+                            "項目": "現價 ÷ TTM EPS",
+                            "內容": f"{fmt(val.get('implied_ttm_pe'))}x",
+                        },
+                        {
+                            "項目": "現價 ÷ Future EPS",
+                            "內容": f"{fmt(val.get('implied_future_pe'))}x",
+                        },
+                        {
+                            "項目": "模型最高 PE",
+                            "內容": f"{fmt(val.get('model_high_pe'))}x",
+                        },
+                        {"項目": "模型判斷", "內容": val.get("pe_status")},
+                        {"項目": "目前股價所在區間", "內容": current_zone},
+                    ]
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.warning(val.get("reason", "估值資料不足"))
+
+# ── 估值區間表：獨立拉出，放在法人共識目標價上方 ───────────────
+if val.get("ok"):
+    _zone_title = (
+        "### 📊 估值區間表（模型自動校正後）"
+        if val_auto.get("model_changed")
+        else "### 📊 估值區間表"
+    )
+    st.markdown(_zone_title)
+    st.caption("黃色列 / ✅ 代表目前股價所在區間；區間表獨立顯示，方便手機快速判讀。")
+    if not valuation_df.empty:
+        _mobile_val_rows = []
+        for _, _r in valuation_df.iterrows():
+            _zone_raw = str(_r.get("估值區間", ""))
+            _zone_parts = _zone_raw.split("｜", 1)
+            _zone_name = _zone_parts[0].strip() if _zone_parts else _zone_raw
+            _zone_note = _zone_parts[1].strip() if len(_zone_parts) > 1 else ""
+            _is_now = str(_r.get("目前所在區間", "")) == "✅ 目前股價"
+            _mobile_val_rows.append(
+                {
+                    "情境": ("✅ " if _is_now else "") + _zone_name,
+                    "EPS / PE": f"{_r.get('EPS', '-')} / {_r.get('PE', '-')}",
+                    "估值區間": _r.get("股價區間", "-"),
+                    "判讀": _zone_note or ("目前股價" if _is_now else "參考"),
+                }
+            )
+        _mobile_val_df = pd.DataFrame(_mobile_val_rows)
+        st.dataframe(
+            _mobile_val_df,
+            use_container_width=True,
+            hide_index=True,
+        )
     else:
-        st.warning(val.get("reason", "估值資料不足"))
+        st.info("估值區間資料不足。")
+else:
+    st.warning(val.get("reason", "估值資料不足"))
 
 with st.expander("展開：法人共識目標價明細", expanded=False):
     # ── 法人共識目標價（yfinance 輔助，不影響裁決）──────────────
@@ -11404,6 +11639,17 @@ _pb_status = pullback_quality.get("status", "資料不足")
 _pb_reasons = pullback_quality.get("reasons", [])
 _pb_tip = pullback_quality.get("tip", "")
 _pb_msg = f"**{_pb_status}**｜{_pb_tip}\n\n" + "\n".join([f"- {x}" for x in _pb_reasons])
+
+# 將 Attack 結論移到回檔品質判斷卡內，避免下方診斷區重複出現大綠框。
+_diag_attack_type = str(a.get("_diag", {}).get("atk_attack_type", ""))
+if _diag_attack_type.startswith("回檔型"):
+    _pb_msg += (
+        "\n\n✅ 回檔型 Attack：未來一週在支撐 / 回測接近買點內，"
+        "籌碼未呈出貨型賣壓，具備回檔後再次攻擊機會。"
+    )
+elif _diag_attack_type.startswith("突破型"):
+    _pb_msg += "\n\n✅ 突破型 Attack：價格已突破或接近突破，且量能升溫，屬右側準備攻擊。"
+
 if _pb_status == "健康回檔":
     st.success(_pb_msg)
 elif _pb_status in ["普通回檔", "非回檔買點"]:
@@ -11453,10 +11699,9 @@ if position:
         hide_index=True,
     )
 
-# ── 模型診斷：收進單一展開區，主畫面只保留卡關提醒 ──────────────────────
-with st.expander("🧪 模型診斷與卡關細節", expanded=False):
-    st.caption("調模型或追查 Focus / Core / Attack 卡關時再打開；平常看上方決策卡即可。")
-    st.markdown("#### ⚔️ 攻擊機會診斷")
+# ── 短線機會 Attack：獨立展開，方便直接追查短線機會 ──────────────────────
+with st.expander("⚔️ 短線機會 Attack", expanded=False):
+    st.caption("追查短線 Attack 是否成立；平常可搭配上方回檔品質判斷一起看。")
     _d = a.get("_diag", {})
     _atk_labels = [
         ("atk_attack_type", "Attack 類型", "突破型已觸發 / 突破準備 / 回檔觀察 / 無", None),
@@ -11579,118 +11824,111 @@ with st.expander("🧪 模型診斷與卡關細節", expanded=False):
             note = f"— {hint}" if hint else "—"
         _atk_rows.append({"項目": label, "數值": val_str, "說明": note})
     st.dataframe(pd.DataFrame(_atk_rows), use_container_width=True, hide_index=True)
-    _atype = _d.get("atk_attack_type", "無")
-    if str(_atype).startswith("回檔型"):
-        st.success(
-            "✅ 回檔型 Attack：未來一週在支撐 / 回測接近買點內，籌碼未呈出貨型賣壓，具備回檔後再次攻擊機會。"
-        )
-    elif str(_atype).startswith("突破型"):
-        st.success("✅ 突破型 Attack：價格已突破或接近突破，且量能升溫，屬右側準備攻擊。")
-    else:
-        st.warning("⚠️ 無 Attack：目前不是健康回檔，也不是突破攻擊，先觀察。")
 
-# ── Core 診斷面板 ──────────────────────────
-    st.markdown("#### 🔬 公司收編診斷")
-    _d = a.get("_diag", {})
+# ── 成長股判斷 Core：獨立展開，方便追查收編條件 ──────────────────────
+with st.expander("🔬 成長股判斷 Core", expanded=False):
+    if nick_private_gate("成長股判斷 Core", "growth_core_diagnosis"):
+        st.caption("追查公司是否具備 Core 收編條件；現金流 / 存貨 / 應收多數只限制 Focus，不直接等於財報不通過。")
+        _d = a.get("_diag", {})
 
-    _block_if_true = {
-        "working_capital_hard_block": "True 代表存貨/應收異常且屬嚴格模型，硬擋 Core",
-        "debt_hard_block": "True 代表負債明顯且非高品質成長模型，硬擋 Core",
-        "core_hard_block": "True 代表某條件觸發硬擋，需往下逐項查",
-    }
-    _pass_if_true = {
-        "leader_core_pass": "True = 頂級龍頭路徑通過",
-        "growth_core_pass": "True = 高成長優質股路徑通過",
-        "defensive_core_pass": "True = 穩健優質股路徑通過",
-        "high_quality_growth_core_pass": "True = 高品質成長路徑 D 通過（含 fingerprint 升級股票）",
-        "core_normal_pass": "True = 任一正式收編路徑通過",
-        "core_candidate": "True = 已進入收編候選名單",
-    }
-    _bad_values = {
-        "report": (["不通過"], "財報不通過 → 硬擋 Core"),
-        "financial_quality": (["低"], "財務品質低 → 硬擋 Core"),
-        "growth_quality": (["不通過"], "成長品質不通過（穩健股允許部分通過）"),
-        "treasury": (["觀察級", "淘汰級"], "金庫等級不足（分數 >= 8 可補救）"),
-        "cashflow": (["不配合"], "現金流不配合 → 硬擋 Core"),
-        "debt": (["明顯"], "負債明顯（高品質成長模型不硬擋，其他模型擋）"),
-        "inv_ar": (["偏高", "異常"], "存貨/應收偏高（嚴格模型才硬擋）"),
-        "revenue_to_eps": (["無"], "營收未轉成 EPS"),
-        "margin": (["差", "偏低"], "毛利率/營益率不達標"),
-        "rerating_verdict": (["不成立"], "估值重評不成立，擋住各路徑"),
-    }
-    _score_checks = {
-        "rev_score": ("龍頭/高成長路徑需 >= 2", lambda v: v >= 2),
-        "treasury_score": (
-            ">= 9 金庫級 / >= 7 候選級 / >= 8 補救各路徑",
-            lambda v: v >= 7,
-        ),
-        "rerating_score": ("> 0 成立，< 0 不成立", lambda v: v > 0),
-    }
+        _block_if_true = {
+            "working_capital_hard_block": "True 代表存貨/應收異常且屬嚴格模型，硬擋 Core",
+            "debt_hard_block": "True 代表負債明顯且非高品質成長模型，硬擋 Core",
+            "core_hard_block": "True 代表某條件觸發硬擋，需往下逐項查",
+        }
+        _pass_if_true = {
+            "leader_core_pass": "True = 頂級龍頭路徑通過",
+            "growth_core_pass": "True = 高成長優質股路徑通過",
+            "defensive_core_pass": "True = 穩健優質股路徑通過",
+            "high_quality_growth_core_pass": "True = 高品質成長路徑 D 通過（含 fingerprint 升級股票）",
+            "core_normal_pass": "True = 任一正式收編路徑通過",
+            "core_candidate": "True = 已進入收編候選名單",
+        }
+        _bad_values = {
+            "report": (["不通過"], "財報不通過 → 硬擋 Core"),
+            "financial_quality": (["低"], "財務品質低 → 硬擋 Core"),
+            "growth_quality": (["不通過"], "成長品質不通過（穩健股允許部分通過）"),
+            "treasury": (["觀察級", "淘汰級"], "金庫等級不足（分數 >= 8 可補救）"),
+            "cashflow": (["不配合"], "現金流不配合 → 硬擋 Core"),
+            "debt": (["明顯"], "負債明顯（高品質成長模型不硬擋，其他模型擋）"),
+            "inv_ar": (["偏高", "異常"], "存貨/應收偏高（嚴格模型才硬擋）"),
+            "revenue_to_eps": (["無"], "營收未轉成 EPS"),
+            "margin": (["差", "偏低"], "毛利率/營益率不達標"),
+            "rerating_verdict": (["不成立"], "估值重評不成立，擋住各路徑"),
+        }
+        _score_checks = {
+            "rev_score": ("龍頭/高成長路徑需 >= 2", lambda v: v >= 2),
+            "treasury_score": (
+                ">= 9 金庫級 / >= 7 候選級 / >= 8 補救各路徑",
+                lambda v: v >= 7,
+            ),
+            "rerating_score": ("> 0 成立，< 0 不成立", lambda v: v > 0),
+        }
 
-    _labels = {
-        "model_key": "採用模型",
-        "model_source": "模型來源",
-        "report": "財報裁決",
-        "financial_quality": "財務品質",
-        "growth_quality": "成長品質",
-        "treasury": "財報金庫",
-        "treasury_score": "金庫分數",
-        "cashflow": "現金流",
-        "debt": "負債狀況",
-        "inv_ar": "存貨/應收",
-        "revenue_to_eps": "營收轉 EPS",
-        "margin": "毛利/營益",
-        "rev_score": "營收分數",
-        "rerating_verdict": "估值重評裁決",
-        "rerating_score": "估值重評分數",
-        "working_capital_hard_block": "營運資金硬擋",
-        "debt_hard_block": "負債硬擋",
-        "core_hard_block": "Core 硬擋",
-        "fingerprint_upgraded": "Fingerprint 升級",
-        "leader_core_pass": "頂級龍頭條件通過",
-        "growth_core_pass": "高成長條件通過",
-        "defensive_core_pass": "穩健優質條件通過",
-        "high_quality_growth_core_pass": "高品質成長路徑 D 通過",
-        "core_normal_pass": "正式收編通過",
-        "core_candidate": "收編候選通過",
-        "core": "最終 Core",
-        "core_status": "Core 狀態",
-        "core_reason": "Core 說明",
-    }
+        _labels = {
+            "model_key": "採用模型",
+            "model_source": "模型來源",
+            "report": "財報裁決",
+            "financial_quality": "財務品質",
+            "growth_quality": "成長品質",
+            "treasury": "財報金庫",
+            "treasury_score": "金庫分數",
+            "cashflow": "現金流",
+            "debt": "負債狀況",
+            "inv_ar": "存貨/應收",
+            "revenue_to_eps": "營收轉 EPS",
+            "margin": "毛利/營益",
+            "rev_score": "營收分數",
+            "rerating_verdict": "估值重評裁決",
+            "rerating_score": "估值重評分數",
+            "working_capital_hard_block": "營運資金硬擋",
+            "debt_hard_block": "負債硬擋",
+            "core_hard_block": "Core 硬擋",
+            "fingerprint_upgraded": "Fingerprint 升級",
+            "leader_core_pass": "頂級龍頭條件通過",
+            "growth_core_pass": "高成長條件通過",
+            "defensive_core_pass": "穩健優質條件通過",
+            "high_quality_growth_core_pass": "高品質成長路徑 D 通過",
+            "core_normal_pass": "正式收編通過",
+            "core_candidate": "收編候選通過",
+            "core": "最終 Core",
+            "core_status": "Core 狀態",
+            "core_reason": "Core 說明",
+        }
 
-    _rows = []
-    for key, label in _labels.items():
-        val_raw = _d.get(key, "（無）")
-        val_str = str(val_raw)
-        note = ""
+        _rows = []
+        for key, label in _labels.items():
+            val_raw = _d.get(key, "（無）")
+            val_str = str(val_raw)
+            note = ""
 
-        if key in _block_if_true:
-            desc = _block_if_true[key]
-            note = f"⚠️ {desc}" if val_raw is True else "✅ 無硬擋"
+            if key in _block_if_true:
+                desc = _block_if_true[key]
+                note = f"⚠️ {desc}" if val_raw is True else "✅ 無硬擋"
 
-        elif key in _pass_if_true:
-            desc = _pass_if_true[key]
-            note = f"✅ {desc}" if val_raw is True else "⚠️ 此路徑未通過"
+            elif key in _pass_if_true:
+                desc = _pass_if_true[key]
+                note = f"✅ {desc}" if val_raw is True else "⚠️ 此路徑未通過"
 
-        elif key in _bad_values:
-            bad_list, desc = _bad_values[key]
-            is_bad = any(b in val_str for b in bad_list)
-            note = f"⚠️ {desc}" if is_bad else "✅ 正常"
+            elif key in _bad_values:
+                bad_list, desc = _bad_values[key]
+                is_bad = any(b in val_str for b in bad_list)
+                note = f"⚠️ {desc}" if is_bad else "✅ 正常"
 
-        elif key in _score_checks:
-            desc, check_fn = _score_checks[key]
-            try:
-                is_ok = check_fn(float(val_raw))
-            except (TypeError, ValueError):
-                is_ok = None
-            if is_ok is None:
-                note = f"— {desc}"
-            else:
-                note = f"✅ {desc}" if is_ok else f"⚠️ {desc}"
+            elif key in _score_checks:
+                desc, check_fn = _score_checks[key]
+                try:
+                    is_ok = check_fn(float(val_raw))
+                except (TypeError, ValueError):
+                    is_ok = None
+                if is_ok is None:
+                    note = f"— {desc}"
+                else:
+                    note = f"✅ {desc}" if is_ok else f"⚠️ {desc}"
 
-        _rows.append({"項目": label, "數值": val_str, "說明": note})
+            _rows.append({"項目": label, "數值": val_str, "說明": note})
 
-    st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
 
 tab_tech, tab2, tab3, tab4, tab5 = st.tabs(
     [
@@ -11815,18 +12053,19 @@ with tab2:
     )
 
 with tab3:
-    st.text_area(
-        "可複製完整法醫簡版報告",
-        value=report,
-        height=720,
-    )
-    st.download_button(
-        "下載完整報告 TXT",
-        data=report,
-        file_name=f"{stock}_Nick法醫V62_跳檔修正版.txt",
-        mime="text/plain",
-        use_container_width=True,
-    )
+    if nick_private_gate("完整法醫報告", "full_forensic_report"):
+        st.text_area(
+            "可複製完整法醫簡版報告",
+            value=report,
+            height=720,
+        )
+        st.download_button(
+            "下載完整報告 TXT",
+            data=report,
+            file_name=f"{stock}_Nick法醫V62_跳檔修正版.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
 
 with tab4:
     if price:
@@ -11853,76 +12092,77 @@ with tab4:
             st.dataframe(cf["raw"].tail(100), use_container_width=True)
 
 with tab5:
-    st.markdown("### 資料抓取狀態")
-    st.dataframe(
-        status,
-        use_container_width=True,
-        hide_index=True,
-    )
-    st.markdown("### 股票辨識結果")
-    st.dataframe(
-        pd.DataFrame(
-            [
-                {"項目": "股票代號", "內容": stock},
-                {"項目": "股票名稱", "內容": name},
-                {"項目": "產業類別", "內容": industry_category or "無資料"},
-                {"項目": "類型", "內容": meta.get("type") or "無資料"},
-                {
-                    "項目": "採用估值模型",
-                    "內容": a["val"].get("model_name", "資料不足"),
-                },
-                {"項目": "模型 key", "內容": a["val"].get("model_key", "資料不足")},
-            ]
-        ),
-        use_container_width=True,
-        hide_index=True,
-    )
-    st.markdown("### 台股跳檔規則")
-    st.dataframe(
-        pd.DataFrame(
-            [
-                {"股價區間": "未滿 10 元", "跳檔": "0.01"},
-                {"股價區間": "10～未滿 50 元", "跳檔": "0.05"},
-                {"股價區間": "50～未滿 100 元", "跳檔": "0.1"},
-                {"股價區間": "100～未滿 500 元", "跳檔": "0.5"},
-                {"股價區間": "500～未滿 1000 元", "跳檔": "1"},
-                {"股價區間": "1000 元以上", "跳檔": "5"},
-            ]
-        ),
-        use_container_width=True,
-        hide_index=True,
-    )
-    detect = []
-    if fin:
-        detect += [
-            {"資料表": "財報", "項目": k, "偵測欄位": v} for k, v in fin["cols"].items()
-        ]
-    if bal:
-        detect += [
-            {"資料表": "資產負債表", "項目": k, "偵測欄位": v}
-            for k, v in bal["cols"].items()
-        ]
-    if cf:
-        detect += [
-            {"資料表": "現金流量表", "項目": k, "偵測欄位": v}
-            for k, v in cf["cols"].items()
-        ]
-    if detect:
-        st.markdown("### 欄位偵測")
+    if nick_private_gate("抓取狀態", "fetch_status_tab"):
+        st.markdown("### 資料抓取狀態")
         st.dataframe(
-            pd.DataFrame(detect),
+            status,
             use_container_width=True,
             hide_index=True,
         )
-    st.markdown("### 防呆警示")
-    if a["warnings"]:
+        st.markdown("### 股票辨識結果")
         st.dataframe(
-            pd.DataFrame([{"警示": w} for w in a["warnings"]]),
+            pd.DataFrame(
+                [
+                    {"項目": "股票代號", "內容": stock},
+                    {"項目": "股票名稱", "內容": name},
+                    {"項目": "產業類別", "內容": industry_category or "無資料"},
+                    {"項目": "類型", "內容": meta.get("type") or "無資料"},
+                    {
+                        "項目": "採用估值模型",
+                        "內容": a["val"].get("model_name", "資料不足"),
+                    },
+                    {"項目": "模型 key", "內容": a["val"].get("model_key", "資料不足")},
+                ]
+            ),
             use_container_width=True,
             hide_index=True,
         )
-    else:
-        st.success("目前未偵測到重大一致性錯誤。")
+        st.markdown("### 台股跳檔規則")
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {"股價區間": "未滿 10 元", "跳檔": "0.01"},
+                    {"股價區間": "10～未滿 50 元", "跳檔": "0.05"},
+                    {"股價區間": "50～未滿 100 元", "跳檔": "0.1"},
+                    {"股價區間": "100～未滿 500 元", "跳檔": "0.5"},
+                    {"股價區間": "500～未滿 1000 元", "跳檔": "1"},
+                    {"股價區間": "1000 元以上", "跳檔": "5"},
+                ]
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+        detect = []
+        if fin:
+            detect += [
+                {"資料表": "財報", "項目": k, "偵測欄位": v} for k, v in fin["cols"].items()
+            ]
+        if bal:
+            detect += [
+                {"資料表": "資產負債表", "項目": k, "偵測欄位": v}
+                for k, v in bal["cols"].items()
+            ]
+        if cf:
+            detect += [
+                {"資料表": "現金流量表", "項目": k, "偵測欄位": v}
+                for k, v in cf["cols"].items()
+            ]
+        if detect:
+            st.markdown("### 欄位偵測")
+            st.dataframe(
+                pd.DataFrame(detect),
+                use_container_width=True,
+                hide_index=True,
+            )
+        st.markdown("### 防呆警示")
+        if a["warnings"]:
+            st.dataframe(
+                pd.DataFrame([{"警示": w} for w in a["warnings"]]),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.success("目前未偵測到重大一致性錯誤。")
 
 st.caption(
     f"提醒：{APP_VERSION} 是 V4 介面風格 + 名稱/代號自動對照 + 趨勢變化雷達 + "

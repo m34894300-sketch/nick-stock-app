@@ -4763,12 +4763,8 @@ def render_update_log(snapshot: Dict[str, Any]) -> None:
 STOCK_ANALYZER_CORE_FILE = Path(__file__).with_name("stock_analyzer_core.py")
 
 @st.cache_resource(show_spinner=False)
-def load_stock_analyzer_core_code(core_mtime: float) -> str:
-    """Lazy load the heavy stock analyzer core only when the stock analyzer page is opened.
-
-    core_mtime is part of the cache key, so replacing stock_analyzer_core.py
-    invalidates Streamlit cache automatically without needing manual cache clear.
-    """
+def load_stock_analyzer_core_code() -> str:
+    """Lazy load the heavy stock analyzer core only when the stock analyzer page is opened."""
     if not STOCK_ANALYZER_CORE_FILE.exists():
         raise FileNotFoundError(
             f"找不到 {STOCK_ANALYZER_CORE_FILE.name}，請確認它和 app.py 放在同一個資料夾。"
@@ -4789,8 +4785,7 @@ def render_original_stock_analyzer_app() -> None:
             "__file__": "embedded_original_stock_app.py",
             "NICK_SHARED_FLOW_SNAPSHOT": _shared_flow,
         }
-        _core_mtime = STOCK_ANALYZER_CORE_FILE.stat().st_mtime if STOCK_ANALYZER_CORE_FILE.exists() else 0
-        exec(load_stock_analyzer_core_code(_core_mtime), _ns)
+        exec(load_stock_analyzer_core_code(), _ns)
     except Exception as e:
         st.error(f"個股分析器載入失敗：{e}")
         st.exception(e)
