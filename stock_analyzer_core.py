@@ -11213,6 +11213,11 @@ _core_value_raw = "可收編" if a["core"] == "Yes" else "先觀察"
 _core_value = _html.escape(_core_value_raw)
 _core_val_cls = _vm_val_class(a["core"] == "Yes" or _core_value_raw in ["可通過", "可收編"])
 
+# fix22｜財報體質顏色防呆：
+# fix21 新增奶黃色判斷時，_treasury_val_cls 提前引用了 _treasury，
+# 導致 NameError。先在這裡建立財報體質原始值，後面只補顯示文字。
+_treasury = a.get("fin_j", {}).get("treasury", "資料不足")
+_treasury_score = a.get("fin_j", {}).get("treasury_score", "")
 _treasury_val_cls = _vm_val_class(str(_treasury) == "金庫級")
 
 try:
@@ -11246,8 +11251,6 @@ _esc_why = _html.escape(str(a["why"]))
 _esc_trend_status = _html.escape(display_trend_status(_trend_status))
 _esc_zone = _html.escape(str(current_zone))
 _esc_atk_badge = _html.escape(str(_attack_type_badge)) if _attack_type_badge else ""
-_treasury = a.get("fin_j", {}).get("treasury", "資料不足")
-_treasury_score = a.get("fin_j", {}).get("treasury_score", "")
 try:
     _treasury_text = f"{_treasury}｜{float(_treasury_score):.1f}/12"
 except Exception:
