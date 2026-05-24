@@ -2238,10 +2238,16 @@ MODEL_CONFIG.update({
         "down": (10, 14), "cons": (15, 20), "neutral": (21, 28), "opt": (29, 36), "rerating": (37, 45), "market_premium": (46, 55),
     },
     "abf_substrate": {
-        "name": "ABF / 高階載板",
-        "primary": "Forward PE + 稼動率 + 報價 / 產品結構循環",
-        "note": "ABF 載板屬景氣循環與高階需求混合型；需看稼動率、報價、AI / CPU / GPU 需求與庫存去化。",
-        "down": (6, 9), "cons": (10, 13), "neutral": (14, 18), "opt": (19, 24), "rerating": (25, 32), "market_premium": (33, 40),
+        "name": "AI 高階載板 / ABF / BT 載板重評",
+        "primary": "Forward PE + 稼動率 + 報價 / 產品結構循環 + EPS 上修",
+        "note": "適用欣興、景碩、南電等 AI / HPC / ASIC 高階 ABF / BT 載板鏈。若營收轉 EPS、毛利率 / 營益率改善且估值重評成立，不可套一般 PCB 低 PE；但因載板仍有景氣循環與高資本支出特性，Focus 與追價需嚴格。",
+        "down": (40, 50),
+        "cons": (45, 55),
+        "neutral": (55, 65),
+        "opt": (65, 75),
+        "rerating": (75, 85),
+        "market_premium": (85, 95),
+        "support_key": "neutral",
     },
     "thermal_liquid_cooling": {
         "name": "散熱 / 液冷",
@@ -2916,6 +2922,7 @@ HIGH_QUALITY_GROWTH_MODELS = [
     "ai_power_premium",
     "ai_pcb_ccl",
     "ai_highspeed_materials",
+    "abf_substrate",
     "ic_design_large",
     "optical_ai_datacenter",
     "precision_component_growth",
@@ -4378,6 +4385,8 @@ def build_15s_read(
     # 市場在看什麼：基本面 + 成長驗證，不用內部標籤。
     if (a.get("val") or {}).get("model_key") == "ai_highspeed_materials":
         market_watch = "市場主要看 AI 高階 CCL / 高速材料、HDI / mSAP、Infrastructure 需求能不能繼續接棒營收與 EPS。"
+    elif (a.get("val") or {}).get("model_key") == "abf_substrate":
+        market_watch = "市場主要看 AI / HPC / ASIC 高階 ABF 載板需求、報價與產品組合改善，能不能繼續接棒營收與 EPS。"
     elif a.get("core") == "Yes":
         market_watch = "市場主要看營收、EPS 與產業題材能不能繼續接棒股價。"
     elif report == "通過":
@@ -6373,9 +6382,16 @@ def estimate_value(
     eps_yoy = to_float(fin.get("eps_yoy"))
     _pre_model_key = override_model_key if override_model_key in MODEL_CONFIG else get_model_key(stock, industry_category)
     _is_highspeed_material = _pre_model_key == "ai_highspeed_materials"
+    _is_abf_substrate = _pre_model_key == "abf_substrate"
     # 成長假設改成「財報有根」：營收、EPS、毛利/營益率同步愈強，未來 12 個月 EPS 才能往上推。
     # fix25：AI 高階 CCL / 高速材料若 Q1 財報與營收明確加速，不能用一般成長股低成長假設。
-    if _is_highspeed_material and rev_yoy is not None and eps_yoy is not None and rev_yoy >= 45 and eps_yoy >= 35 and fj["revenue_to_eps"] in ["有", "部分有"] and fj["margin"] in ["有", "普通"]:
+    # fix26：AI 高階 ABF / BT 載板若景氣循環復甦且 Q1 EPS 已明顯轉強，
+    # 不能只用 TTM EPS 小幅成長；要允許最近一季 EPS run-rate 成為未來 12 個月 EPS 輔助。
+    if _is_abf_substrate and rev_yoy is not None and rev_yoy >= 25 and fj["revenue_to_eps"] in ["有", "部分有"] and fj["margin"] in ["有", "普通"]:
+        growth = 0.85
+    elif _is_abf_substrate and rev_yoy is not None and rev_yoy >= 15 and fj["revenue_to_eps"] in ["有", "部分有"]:
+        growth = 0.65
+    elif _is_highspeed_material and rev_yoy is not None and eps_yoy is not None and rev_yoy >= 45 and eps_yoy >= 35 and fj["revenue_to_eps"] in ["有", "部分有"] and fj["margin"] in ["有", "普通"]:
         growth = 0.55
     elif _is_highspeed_material and rev_yoy is not None and eps_yoy is not None and rev_yoy >= 30 and eps_yoy >= 25 and fj["revenue_to_eps"] in ["有", "部分有"]:
         growth = 0.45
@@ -6396,9 +6412,15 @@ def estimate_value(
 
     ttm_projected = base_eps * (1 + growth)
     if annualized_eps is not None and annualized_eps > 0 and not suspect_single_quarter_as_ttm:
-        # 年化 EPS 只能輔助：若與 TTM 推估差距太大，最多只取 15% 緩衝，避免單季暴衝扭曲估值。
-        future_eps = max(ttm_projected, min(annualized_eps, base_eps * 1.15))
-        future_eps_note = "採近四季 EPS × 成長假設，最近一季年化僅作 run-rate 輔助"
+        if _is_abf_substrate and rev_yoy is not None and rev_yoy >= 20 and fj["revenue_to_eps"] in ["有", "部分有"] and fj["margin"] in ["有", "普通"]:
+            # ABF / 高階載板復甦初期，TTM EPS 會落後最新一季 run-rate。
+            # 但仍不能直接把單季 EPS 無限制年化，因此用 annualized_eps × 1.08 並加上 base_eps 上限防呆。
+            future_eps = max(ttm_projected, min(annualized_eps * 1.08, base_eps * 2.20))
+            future_eps_note = "採近四季 EPS × 成長假設，並以最近一季年化作 ABF 復甦 run-rate 輔助"
+        else:
+            # 年化 EPS 只能輔助：若與 TTM 推估差距太大，最多只取 15% 緩衝，避免單季暴衝扭曲估值。
+            future_eps = max(ttm_projected, min(annualized_eps, base_eps * 1.15))
+            future_eps_note = "採近四季 EPS × 成長假設，最近一季年化僅作 run-rate 輔助"
     else:
         future_eps = ttm_projected
         future_eps_note = "採 EPS 基礎 × 成長假設；未直接使用單季 EPS 乘年度 PE"
@@ -6853,7 +6875,7 @@ def valuation_forensic_check(val, price=None, fj=None, rr=None, industry_categor
     method_map.update({
         "mature_foundry": ("Forward PE + 產能利用率 + ASP / 毛利率循環位置", "成熟製程需區分 TTM PE 偏貴與 Future EPS 可否解釋；未驗證毛利率 / ASP 前不追高"),
         "semicap_equipment_material": ("Forward PE + 訂單能見度 + 資本支出循環", "設備材料股要看訂單、認列與資本支出，不可只看題材"),
-        "abf_substrate": ("Forward PE + 稼動率 + 報價循環", "ABF 載板需看稼動率、報價與庫存去化，PE 需搭配循環位置"),
+        "abf_substrate": ("Forward PE + 稼動率 + 報價 / 產品結構 + EPS 上修", "AI 高階 ABF / BT 載板若營收轉 EPS 且毛利率 / 營益率改善，可給重評 PE；但需搭配循環位置與買點紀律"),
         "thermal_liquid_cooling": ("Forward PE + 液冷滲透率 + 毛利率", "散熱液冷可用 PE，但需確認客戶放量與毛利率是否兌現"),
         "connector_highspeed": ("Forward PE + 高速規格升級 + 滲透率", "連接器需確認高速規格與客戶滲透，不可把一般產品給高估值"),
         "memory_storage": ("報價循環 + 庫存 + 毛利率轉正", "記憶體 PE 容易失真，需優先看報價與循環位置"),
@@ -6880,7 +6902,6 @@ def valuation_forensic_check(val, price=None, fj=None, rr=None, industry_categor
         warnings.append("目前仍是 default 模型，產業 PE 可能需校正")
     _strict_pe_models = {
         "mature_foundry",
-        "abf_substrate",
         "memory_storage",
         "power_grid_equipment",
         "robotics_automation",
@@ -7502,6 +7523,7 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
         "ai_network_switch_growth",
         "ai_power_premium",
         "ai_pcb_ccl",
+        "abf_substrate",
         "ic_design_large",
         "optical_ai_datacenter",
         "precision_component_growth",
@@ -7580,6 +7602,7 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
     # ── 路徑 B：高成長優質股 Core ──────────────────────────
     _growth_models = [
         "ai_pcb_ccl",
+        "abf_substrate",
         "ic_design_large",
         "ai_power_premium",
         "growth_premium",
@@ -7611,6 +7634,7 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
         "optical_ai_datacenter",
         "ai_pcb_ccl",
         "ai_highspeed_materials",
+        "abf_substrate",
         "growth_premium",
         "connector_highspeed",
         "semicap_equipment_material",
@@ -7951,7 +7975,6 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
     strict_model_focus_limited = False
     _strict_focus_models = {
         "mature_foundry",
-        "abf_substrate",
         "memory_storage",
         "power_grid_equipment",
         "robotics_automation",
