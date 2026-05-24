@@ -1837,7 +1837,7 @@ STOCK_MODEL_MAP = {
     "2449": "advanced_packaging_osat",
     "6257": "advanced_packaging_osat",
     "6239": "advanced_packaging_osat",
-    "8112": "distributor",
+    "8112": "memory_cyclical_distributor",
     "3036": "distributor",
     "2347": "distributor",
     "3702": "distributor",
@@ -2170,6 +2170,18 @@ MODEL_CONFIG = {
         "rerating": (14, 17),
         "market_premium": (18, 22),
     },
+    "memory_cyclical_distributor": {
+        "name": "記憶體循環 / 低毛利電子通路",
+        "primary": "Forward PE + 記憶體報價循環 + EPS / 現金流 / 存貨應收檢查",
+        "note": "適用至上這類記憶體代理 / 通路股。EPS 可能因報價循環爆發，但低毛利、負現金流、存貨應收與負債會限制 Core / Focus；估值只能給循環重評，不可當高毛利結構成長股。",
+        "down": (6, 7),
+        "cons": (7, 8),
+        "neutral": (8, 10),
+        "opt": (10, 12),
+        "rerating": (12, 15),
+        "market_premium": (16, 18),
+        "support_key": "cons",
+    },
     "cyclical_material": {
         "name": "景氣循環 / 原物料",
         "primary": "PE + P/B + 毛利率循環位置",
@@ -2346,7 +2358,10 @@ MODEL_CONFIG.update({
 # fix31｜AI 先進封裝封測龍頭模型＋突破候選邏輯
 # fix32｜先進封裝 EPS 基礎校正＋突破候選強化
 # fix33｜先進封裝模型強制 EPS 支撐校正＋漲停突破候選觸發修正
-# fix34｜先進封裝估值支撐區改用 future_eps 計算：支撐 PE 由傳統散熱低估值上修至 AI 散熱 / 液冷重評區間
+# fix34｜先進封裝估值支撐區改用 future_eps 計算
+# fix35｜記憶體循環低毛利通路模型＋Core No 文案防呆
+# fix36｜記憶體通路估值支撐改用未來 EPS
+# fix37｜記憶體通路 EPS 下限強化＋保守支撐 PE 收斂：支撐 PE 由傳統散熱低估值上修至 AI 散熱 / 液冷重評區間
 # =========================
 # 來源：5 檔正式法醫報告回測（台積電、聯發科、台達電、鴻海、智邦）
 # 原則：不寫死個股價格 / EPS / 目標價；只建立通用族群 PE 模型與判斷規則。
@@ -4029,7 +4044,7 @@ def build_fundamental_support_summary(price, val, current_zone="", realtime_quot
     low, high = min(support[0], support[1]), max(support[0], support[1])
     support_range = rng_price((low, high))
     eps_basis_text = val.get("base_eps_label", "EPS")
-    if val.get("model_key") == "advanced_packaging_osat":
+    if val.get("model_key") in ["advanced_packaging_osat", "memory_cyclical_distributor"]:
         eps_basis_text = "未來 12 個月 EPS"
     elif valuation_support_key(val) != "down":
         eps_basis_text = "未來 12 個月 EPS" if valuation_support_key(val) not in ["down", "cons"] else val.get("base_eps_label", "EPS")
@@ -4052,9 +4067,13 @@ def build_fundamental_support_summary(price, val, current_zone="", realtime_quot
 
     if low <= ref_price <= high:
         rel_label, _rel_pos = valuation_relative_label({"close": ref_price}, val)
-        quick = f"EPS 基礎：{eps_basis_text}｜合理 PE：{pe_text}\n基本面支撐區約 {support_range}；{ref_label}位於{rel_label}，有支撐但不代表可以重押。"
+        if val.get("model_key") == "memory_cyclical_distributor":
+            quick = f"EPS 基礎：{eps_basis_text}｜合理 PE：{pe_text}\n基本面支撐區約 {support_range}；{ref_label}位於{rel_label}，有部分基本面支撐，但支撐來自記憶體報價與 EPS 延續，不代表可以重押。"
+            card_note = "低毛利通路股仍需看 Q2 EPS、毛利率、現金流與庫存週轉。"
+        else:
+            quick = f"EPS 基礎：{eps_basis_text}｜合理 PE：{pe_text}\n基本面支撐區約 {support_range}；{ref_label}位於{rel_label}，有支撐但不代表可以重押。"
+            card_note = "現價仍在支撐區內，先看基本面能不能維持。"
         card_value = f"支撐價 {support_range}"
-        card_note = "現價仍在支撐區內，先看基本面能不能維持。"
     elif ref_price > high:
         gap = (ref_price / high - 1) * 100 if high else None
         if gap is not None and gap >= 25:
@@ -4066,6 +4085,9 @@ def build_fundamental_support_summary(price, val, current_zone="", realtime_quot
         if val.get("model_key") == "advanced_packaging_osat":
             quick = f"EPS 基礎：{eps_basis_text}｜合理 PE：{pe_text}\n基本面支撐區約 {support_range}；{ref_label}高於保守支撐區上緣約 {_fmt_signed_pct(gap)}，已接近中性 / 重評區，需靠 Q2 EPS 與毛利率 / 營益率續升接棒。"
             card_note = "封測 Re-rating 有根，但現價已非低估區，需等回檔或右側確認。"
+        elif val.get("model_key") == "memory_cyclical_distributor":
+            quick = f"EPS 基礎：{eps_basis_text}｜合理 PE：{pe_text}\n基本面支撐區約 {support_range}；{ref_label}高於保守支撐區上緣約 {_fmt_signed_pct(gap)}，仍需靠 Q2 EPS、記憶體報價與毛利率 / 營益率續強接棒。"
+            card_note = "支撐來自記憶體循環與 EPS 延續，不是高毛利體質；不適合主倉重押。"
         elif gap is not None and gap > 50:
             quick = f"EPS 基礎：{eps_basis_text}｜合理 PE：{pe_text}\n基本面支撐區約 {support_range}；{ref_label}高於支撐區上緣約 {_fmt_signed_pct(gap)}，需先檢查 EPS 基礎與族群 PE，不可寫成沒有脫離基本面。"
             card_note = "股價已先跑，需靠營收、毛利率、EPS 接棒。"
@@ -4302,6 +4324,9 @@ def build_15s_read(
     judge_text = action_map.get(action, action) or "資料不足，暫無判斷"
 
     report = str(fj.get("report", "資料不足") or "資料不足")
+    report_type_display = str(fj.get("report_type", "") or "")
+    if report_type_display == "部分通過偏強":
+        report = "部分通過偏強"
     core_v = str(a.get("core", "No") or "No")
     attack_v = str(a.get("attack", "No") or "No")
     focus_v = str(a.get("focus_display", a.get("focus", "No")) or "No")
@@ -4309,13 +4334,18 @@ def build_15s_read(
     core_display = core_v
     if core_v == "No" and report == "部分通過":
         core_display = "候選"
+    if core_v == "No" and report == "部分通過偏強":
+        core_display = "No"
     attack_display = attack_v
     if attack_v == "Yes" and "回檔" in attack_type_v:
         attack_display = "回檔型 Yes"
     elif attack_v == "Yes" and "突破" in attack_type_v:
         attack_display = "突破型 Yes"
-    elif attack_v == "候選" or "候選" in attack_type_v:
-        attack_display = "突破候選" if "突破候選" in attack_type_v else "回檔候選"
+    elif attack_v == "候選" or "候選" in attack_type_v or "觀察型小倉" in attack_type_v:
+        if "觀察型小倉" in attack_type_v:
+            attack_display = "觀察型小倉"
+        else:
+            attack_display = "突破候選" if "突破候選" in attack_type_v else "回檔候選"
 
     # V10：CAF 與操作文字一致性防呆。
     # 若財報通過且 Core Yes，不可因 action 舊值仍是「只觀察」而把分享文寫得像基本面不行。
@@ -4328,8 +4358,10 @@ def build_15s_read(
             judge_text = "等回檔或右側確認"
         elif action in ["只觀察", "不買"]:
             judge_text = "等回檔或右側確認"
-    elif report == "部分通過" and core_display == "候選" and focus_v == "No":
-        if action in ["不買", "只觀察"]:
+    elif report in ["部分通過", "部分通過偏強"] and focus_v == "No":
+        if "觀察型小倉" in attack_type_v:
+            judge_text = "續抱觀察，不加碼"
+        elif action in ["不買", "只觀察"]:
             judge_text = "先觀察，等財報或買點確認"
 
     one_sentence = f"財報{report}，Core {core_display}；Attack {attack_display}，Focus {focus_v}；目前適合{judge_text}。"
@@ -4405,13 +4437,19 @@ def build_15s_read(
         if "目前仍在基本面可解釋範圍內" in position_comment:
             position_comment = "股價已高於基本面支撐區，需等基本面接棒或回檔確認。"
     elif "位於" in fundamental_quick and ("支撐區" in fundamental_quick or "合理" in fundamental_quick):
-        valuation_guard_line = "現價仍有基本面支撐，但 Core Yes 不等於可以重押；仍要看買點、籌碼與風報比。"
+        if str(a.get("core", "No") or "No") == "Yes":
+            valuation_guard_line = "現價仍有基本面支撐，但 Core Yes 不等於可以重押；仍要看買點、籌碼與風報比。"
+        else:
+            valuation_guard_line = "現價仍有部分基本面支撐，但 Core No，代表只能小倉觀察或續抱，不適合主倉重押。"
         if "股價位置偏高" not in position_comment and "高於" not in position_comment:
             position_comment = position_comment.replace("目前仍在基本面可解釋範圍內。", "目前仍在基本面可解釋範圍內，但不是低風險甜蜜買點。")
     elif "低於支撐區" in fundamental_quick:
         valuation_guard_line = "估值看起來偏保守，但仍要確認基本面沒有變差，不能只因便宜就買。"
     else:
-        valuation_guard_line = "估值資料仍需確認；不要只用樂觀情境當買進理由。"
+        if (a.get("val") or {}).get("model_key") == "memory_cyclical_distributor":
+            valuation_guard_line = "估值有循環支撐，但 Core No；只能小倉觀察或續抱，不適合主倉重押。"
+        else:
+            valuation_guard_line = "估值資料仍需確認；不要只用樂觀情境當買進理由。"
 
     analyst_line = "法人平均目標價：無資料"
     try:
@@ -4438,6 +4476,8 @@ def build_15s_read(
         market_watch = "市場主要看 AI 伺服器散熱 / 液冷、ASIC 散熱與資料中心散熱需求，能不能繼續接棒營收、毛利率與 EPS。"
     elif (a.get("val") or {}).get("model_key") == "advanced_packaging_osat":
         market_watch = "市場主要看 AI 先進封裝 / 測試 / SiP 與封測稼動率改善，能不能繼續接棒營收、毛利率、營益率與 EPS。"
+    elif (a.get("val") or {}).get("model_key") == "memory_cyclical_distributor":
+        market_watch = "市場主要看 DRAM / NAND 報價、伺服器記憶體需求、庫存價差與 EPS 能不能延續；但低毛利、現金流與週轉壓力會限制 Core / Focus。"
     elif a.get("core") == "Yes":
         market_watch = "市場主要看營收、EPS 與產業題材能不能繼續接棒股價。"
     elif report == "通過":
@@ -6129,6 +6169,16 @@ def judge_fin(fin, bal, cf, stock=None, industry_category=None):
     else:
         report = "不通過"
 
+    # fix35｜記憶體循環 / 低毛利電子通路：
+    # EPS 爆發可以讓財報「部分通過偏強」，但低毛利、負現金流、存貨應收負債重時，
+    # 不得直接完整通過，也不得正式 Core / Focus。
+    if model_key == "memory_cyclical_distributor" and report == "通過":
+        report = "部分通過"
+        limit_core = True
+        limit_focus = True
+        limit_rerating = True
+        txt.append("記憶體循環低毛利通路：EPS 強但財報品質只給部分通過偏強，限制 Core / Focus")
+
     # 現金流 / 存貨 / 應收 / 股價位置不直接改 report；只限制 Focus / 估值 / 交易倉位。
     working_capital_or_cash_risk = cash == "不配合" or inv_ar != "正常" or debt == "明顯"
     if working_capital_or_cash_risk:
@@ -6198,6 +6248,7 @@ def judge_fin(fin, bal, cf, stock=None, industry_category=None):
         treasury_notes.append("成長動能不通過")
     strict_working_capital_models = [
         "distributor",
+        "memory_cyclical_distributor",
         "low_margin_assembly",
         "cyclical_material",
         "turnaround",
@@ -6225,7 +6276,11 @@ def judge_fin(fin, bal, cf, stock=None, industry_category=None):
         "report": report,
         "treasury_score": treasury_score,
         "treasury_reason": "；".join(treasury_notes),
-        "report_type": ("低毛利結構改善型通過" if low_margin_platform_ok and report == "通過" else ("高成長財報通過" if report == "通過" else report)),
+        "report_type": (
+            "部分通過偏強"
+            if model_key == "memory_cyclical_distributor" and report == "部分通過"
+            else ("低毛利結構改善型通過" if low_margin_platform_ok and report == "通過" else ("高成長財報通過" if report == "通過" else report))
+        ),
         "financial_quality": financial_quality,
         "growth_quality": growth_quality,
         "revenue_to_eps": rte,
@@ -6435,6 +6490,7 @@ def estimate_value(
     _is_highspeed_material = _pre_model_key == "ai_highspeed_materials"
     _is_abf_substrate = _pre_model_key == "abf_substrate"
     _is_advanced_packaging_osat = _pre_model_key == "advanced_packaging_osat"
+    _is_memory_cyclical_distributor = _pre_model_key == "memory_cyclical_distributor"
     # 成長假設改成「財報有根」：營收、EPS、毛利/營益率同步愈強，未來 12 個月 EPS 才能往上推。
     # fix25：AI 高階 CCL / 高速材料若 Q1 財報與營收明確加速，不能用一般成長股低成長假設。
     # fix26：AI 高階 ABF / BT 載板若景氣循環復甦且 Q1 EPS 已明顯轉強，
@@ -6446,6 +6502,11 @@ def estimate_value(
         # 只要財報本體不是不通過，就不能回到近四季 EPS 原地估值。
         # 先用 22% 作保守 2026 EPS 成長假設；若財報不通過才降為 8%。
         growth = 0.22 if fj["report"] in ["通過", "部分通過"] else 0.08
+    elif _is_memory_cyclical_distributor:
+        # fix37｜記憶體循環 / 低毛利通路：
+        # EPS 可因報價循環上修，但低毛利、現金流與週轉壓力限制估值，不給高成長股倍數。
+        # 用 EPS 上修 + 低 PE，而不是低 EPS + 高 PE。
+        growth = 0.25 if fj["report"] in ["通過", "部分通過"] else 0.00
     elif _is_abf_substrate and rev_yoy is not None and rev_yoy >= 25 and fj["revenue_to_eps"] in ["有", "部分有"] and fj["margin"] in ["有", "普通"]:
         growth = 0.85
     elif _is_abf_substrate and rev_yoy is not None and rev_yoy >= 15 and fj["revenue_to_eps"] in ["有", "部分有"]:
@@ -6497,6 +6558,14 @@ def estimate_value(
         if future_eps is None or future_eps < _adv_floor_eps:
             future_eps = _adv_floor_eps
             future_eps_note = "採近四季 EPS × 先進封裝 / 封測重評成長假設"
+    # fix37｜記憶體循環 / 低毛利通路 EPS 支撐防呆：
+    # 至上這類公司 EPS 會受記憶體報價循環上修，但不能給高成長 PE。
+    # 用「未來 EPS 較明確上修 × 較低 PE」處理：EPS 可往上修，PE 仍保守。
+    if _is_memory_cyclical_distributor and base_eps is not None and base_eps > 0:
+        _mem_floor_eps = base_eps * (1.35 if fj["report"] in ["通過", "部分通過"] else 1.00)
+        if future_eps is None or future_eps < _mem_floor_eps:
+            future_eps = _mem_floor_eps
+            future_eps_note = "採近四季 EPS × 記憶體報價循環上修假設，PE 仍以低毛利通路保守估值"
     if override_model_key and override_model_key in MODEL_CONFIG:
         model_key = override_model_key
         model = MODEL_CONFIG[override_model_key]
@@ -6564,6 +6633,36 @@ def estimate_value(
             "opt": calc_range(future_eps, pe_scenarios["opt"]),
             "rerating": calc_range(future_eps, pe_scenarios["rerating"]),
             "market_premium": calc_range(future_eps, pe_scenarios["market_premium"]),
+        }
+    elif model_key == "memory_cyclical_distributor":
+        # fix38｜記憶體通路估值 EPS 區間上緣
+# fix39｜修正 round_price 未定義錯誤：
+        # 至上這類循環通路股，估值支撐應呈現 EPS 區間，不是單一 EPS。
+        # 低點 = future_eps × 保守 PE 下緣；高點 = future_eps_high × 保守 PE 上緣。
+        # 這樣能貼近「未來 EPS 9.5～10.5 × PE 7～8」的法醫估值邏輯。
+        future_eps_high = future_eps * 1.10 if future_eps is not None else None
+        ranges = {
+            "down": calc_range(base_eps, pe_scenarios["down"]),
+            "cons": (
+                future_eps * pe_scenarios["cons"][0] if future_eps is not None else None,
+                future_eps_high * pe_scenarios["cons"][1] if future_eps_high is not None else None,
+            ),
+            "neutral": (
+                future_eps * pe_scenarios["neutral"][0] if future_eps is not None else None,
+                future_eps_high * pe_scenarios["neutral"][1] if future_eps_high is not None else None,
+            ),
+            "opt": (
+                future_eps * pe_scenarios["opt"][0] if future_eps is not None else None,
+                future_eps_high * pe_scenarios["opt"][1] if future_eps_high is not None else None,
+            ),
+            "rerating": (
+                future_eps * pe_scenarios["rerating"][0] if future_eps is not None else None,
+                future_eps_high * pe_scenarios["rerating"][1] if future_eps_high is not None else None,
+            ),
+            "market_premium": (
+                future_eps * pe_scenarios["market_premium"][0] if future_eps is not None else None,
+                future_eps_high * pe_scenarios["market_premium"][1] if future_eps_high is not None else None,
+            ),
         }
     else:
         ranges = {
@@ -7404,6 +7503,14 @@ def build_trade_plan(price, val, action, core, attack, focus):
         shallow_low_raw = close * 0.918
         shallow_high_raw = close * 0.955
 
+    # fix35｜記憶體循環 / 低毛利通路買點分層：
+    # 主區要更保守；85 附近只能算試單 / 續抱，不是正式主倉甜蜜點。
+    if val and val.get("model_key") == "memory_cyclical_distributor" and close is not None:
+        new_low_raw = close * 0.905
+        new_high_raw = close * 0.952
+        shallow_low_raw = close * 0.963
+        shallow_high_raw = close * 0.992
+
     # V9.2：壓力位分層。短線壓力看近 20 日反彈壓力；關鍵壓力優先看 60/120 日前高或波段高點，
     # 避免強趨勢股只抓到最近短壓，右側突破條件太早觸發。
     high120 = None
@@ -7444,6 +7551,11 @@ def build_trade_plan(price, val, action, core, attack, focus):
         key_pressure_raw = _thermal_key
         right_raw = max(_thermal_key * 1.004, close * 1.033)
 
+    if val and val.get("model_key") == "memory_cyclical_distributor" and close is not None:
+        _memory_key = close * 1.038
+        key_pressure_raw = _memory_key
+        right_raw = max(_memory_key * 1.003, close * 1.04)
+
     stop_candidates = []
     if ma60:
         stop_candidates.append(ma60 * 0.96)
@@ -7467,6 +7579,9 @@ def build_trade_plan(price, val, action, core, attack, focus):
     if val and val.get("model_key") == "advanced_packaging_osat" and close is not None:
         wrong_raw = min(wrong_raw, close * 0.928)
         stop_raw = min(stop_raw, close * 0.875)
+    if val and val.get("model_key") == "memory_cyclical_distributor" and close is not None:
+        wrong_raw = min(wrong_raw, close * 0.952)
+        stop_raw = min(stop_raw, close * 0.905)
     short_raw = max(close * 1.08, (high20 * 1.03) if high20 else close * 1.08)
     wave_raw = max(close * 1.15, (high20 * 1.08) if high20 else close * 1.15)
     if val.get("ok"):
@@ -7671,6 +7786,7 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
     )
     strict_working_capital_models = [
         "distributor",
+        "memory_cyclical_distributor",
         "low_margin_assembly",
         "cyclical_material",
         "turnaround",
@@ -8199,6 +8315,22 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
             attack_candidate_reason = "條件接近，但法人 / 技術尚未確認，先列候選不列正式攻擊"
             attack = "候選"
             attack_type = f"{attack_candidate_profile}｜等回檔承接或右側確認"
+
+    # fix35｜記憶體循環 / 低毛利通路 Attack 防呆：
+    # 即使技術接近支撐，也不能把低毛利通路股直接升成正式回檔型 Attack。
+    # Core No 時最多是觀察型小倉 / 等右側突破。
+    if model_key == "memory_cyclical_distributor":
+        _memory_breakout_candidate = (
+            near_breakout
+            or (close is not None and high20 is not None and close >= high20 * 0.94)
+            or (close is not None and ma20 is not None and close >= ma20 * 1.00)
+        )
+        if attack == "Yes" or _memory_breakout_candidate:
+            attack_candidate = True
+            attack_candidate_profile = "觀察型小倉"
+            attack_candidate_reason = "記憶體循環股需等 89.5～90 右側突破或回檔承接，不是正式攻擊倉"
+            attack = "候選"
+            attack_type = "觀察型小倉｜等突破確認"
 
     # fix31｜封測龍頭突破候選：
     # 漲停 / 大漲突破是攻擊味，但不是無腦追。若 Focus 不成立且外資 20 日仍賣或風報比偏差，
@@ -10373,6 +10505,9 @@ def build_buy_zone_summary(price, a, buy_point_rows=None):
     elif "突破候選" in attack_type:
         main = f"突破候選｜等右側確認 {breakout_zone}"
         condition = f"漲停 / 突破後不追板；隔日不跌回、量能維持、法人賣壓不擴大，才升級為 Attack。跌破 {wrong} 先認錯。"
+    elif "觀察型小倉" in attack_type:
+        main = f"觀察型小倉｜等回檔 {shallow_zone} 或右側確認"
+        condition = f"這不是攻擊倉；守 {wrong}，突破確認區且量能 / 法人確認才升級。"
     elif "候選" in attack_type:
         main = f"Attack 候選｜等回檔 {shallow_zone} 或右側確認"
         condition = f"未來一週觀察承接與站回；法人賣超若縮小、守住 {wrong} 且站回確認區，才升級為 Attack。"
