@@ -4762,9 +4762,14 @@ def render_update_log(snapshot: Dict[str, Any]) -> None:
 
 STOCK_ANALYZER_CORE_FILE = Path(__file__).with_name("stock_analyzer_core.py")
 
-@st.cache_resource(show_spinner=False)
 def load_stock_analyzer_core_code() -> str:
-    """Lazy load the heavy stock analyzer core only when the stock analyzer page is opened."""
+    """Lazy load the stock analyzer core.
+
+    fix23:
+    不再使用 st.cache_resource 快取 stock_analyzer_core.py。
+    原因：覆蓋新版核心檔後，Streamlit 可能仍執行舊快取內容，
+    造成已修正的錯誤仍反覆出現。
+    """
     if not STOCK_ANALYZER_CORE_FILE.exists():
         raise FileNotFoundError(
             f"找不到 {STOCK_ANALYZER_CORE_FILE.name}，請確認它和 app.py 放在同一個資料夾。"
