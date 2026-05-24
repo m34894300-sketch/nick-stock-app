@@ -1833,6 +1833,10 @@ STOCK_MODEL_MAP = {
     "2353": "low_margin_assembly",
     "2352": "low_margin_assembly",
     "2357": "low_margin_assembly",
+    "3711": "advanced_packaging_osat",
+    "2449": "advanced_packaging_osat",
+    "6257": "advanced_packaging_osat",
+    "6239": "advanced_packaging_osat",
     "8112": "distributor",
     "3036": "distributor",
     "2347": "distributor",
@@ -2261,6 +2265,18 @@ MODEL_CONFIG.update({
         "market_premium": (46, 58),
         "support_key": "cons",
     },
+    "advanced_packaging_osat": {
+        "name": "AI 先進封裝 / 封測龍頭重評",
+        "primary": "Forward PE + 先進封裝 / 測試需求 + 毛利率 / 營益率改善",
+        "note": "適用日月光投控、京元電子、矽格、力成等先進封裝 / 測試 / OSAT 受惠股。若財報通過、Q2 展望續強、毛利率與營益率改善，不可套一般成熟電子低 PE；但資本密集、負債與自由現金流會限制 Focus 與追漲停。",
+        "down": (24, 28),
+        "cons": (28, 32),
+        "neutral": (32, 36),
+        "opt": (36, 40),
+        "rerating": (40, 45),
+        "market_premium": (46, 55),
+        "support_key": "cons",
+    },
     "connector_highspeed": {
         "name": "連接器 / 高速傳輸",
         "primary": "Forward PE + 高速規格升級 + 客戶滲透率",
@@ -2326,7 +2342,10 @@ MODEL_CONFIG.update({
 # =========================
 # Nick v1 通用族群估值模型校正
 # fix29：通用 Attack 回檔候選骨架＋族群權重
-# fix30｜AI 散熱液冷估值支撐 PE 校正：支撐 PE 由傳統散熱低估值上修至 AI 散熱 / 液冷重評區間
+# fix30｜AI 散熱液冷估值支撐 PE 校正
+# fix31｜AI 先進封裝封測龍頭模型＋突破候選邏輯
+# fix32｜先進封裝 EPS 基礎校正＋突破候選強化
+# fix33｜先進封裝模型強制 EPS 支撐校正＋漲停突破候選觸發修正：支撐 PE 由傳統散熱低估值上修至 AI 散熱 / 液冷重評區間
 # =========================
 # 來源：5 檔正式法醫報告回測（台積電、聯發科、台達電、鴻海、智邦）
 # 原則：不寫死個股價格 / EPS / 目標價；只建立通用族群 PE 模型與判斷規則。
@@ -2935,6 +2954,7 @@ HIGH_QUALITY_GROWTH_MODELS = [
     "optical_ai_datacenter",
     "precision_component_growth",
     "ai_network_switch_growth",
+    "advanced_packaging_osat",
 ]
 
 # V8.5：可給成長溢價，但仍須通過估值 / 買點 / 財報驗證的主流族群模型。
@@ -3094,6 +3114,7 @@ def auto_select_valuation_model(
         "semicap_equipment_material",
         "abf_substrate",
         "thermal_liquid_cooling",
+        "advanced_packaging_osat",
         "connector_highspeed",
         "memory_storage",
         "power_grid_equipment",
@@ -4007,7 +4028,9 @@ def build_fundamental_support_summary(price, val, current_zone="", realtime_quot
     low, high = min(support[0], support[1]), max(support[0], support[1])
     support_range = rng_price((low, high))
     eps_basis_text = val.get("base_eps_label", "EPS")
-    if valuation_support_key(val) != "down":
+    if val.get("model_key") == "advanced_packaging_osat":
+        eps_basis_text = "未來 12 個月 EPS"
+    elif valuation_support_key(val) != "down":
         eps_basis_text = "未來 12 個月 EPS" if valuation_support_key(val) not in ["down", "cons"] else val.get("base_eps_label", "EPS")
     pe_text = f"{support_pe[0]}x～{support_pe[1]}x" if support_pe else "PE 無資料"
     price_ctx = build_date_price_context(price, realtime_quote)
@@ -4039,12 +4062,16 @@ def build_fundamental_support_summary(price, val, current_zone="", realtime_quot
             tone = "已高於支撐區，市場已先買一部分未來"
         else:
             tone = "略高於支撐區，仍要看後續基本面能否接棒"
-        if gap is not None and gap > 50:
+        if val.get("model_key") == "advanced_packaging_osat":
+            quick = f"EPS 基礎：{eps_basis_text}｜合理 PE：{pe_text}\n基本面支撐區約 {support_range}；{ref_label}高於保守支撐區上緣約 {_fmt_signed_pct(gap)}，已接近中性 / 重評區，需靠 Q2 EPS 與毛利率 / 營益率續升接棒。"
+            card_note = "封測 Re-rating 有根，但現價已非低估區，需等回檔或右側確認。"
+        elif gap is not None and gap > 50:
             quick = f"EPS 基礎：{eps_basis_text}｜合理 PE：{pe_text}\n基本面支撐區約 {support_range}；{ref_label}高於支撐區上緣約 {_fmt_signed_pct(gap)}，需先檢查 EPS 基礎與族群 PE，不可寫成沒有脫離基本面。"
+            card_note = "股價已先跑，需靠營收、毛利率、EPS 接棒。"
         else:
             quick = f"EPS 基礎：{eps_basis_text}｜合理 PE：{pe_text}\n基本面支撐區約 {support_range}；{ref_label}高於支撐區上緣約 {_fmt_signed_pct(gap)}，{tone}。"
+            card_note = "股價已先跑，需靠營收、毛利率、EPS 接棒。"
         card_value = f"高於支撐區 {_fmt_signed_pct(gap)}"
-        card_note = "股價已先跑，需靠營收、毛利率、EPS 接棒。"
     else:
         gap = (ref_price / low - 1) * 100 if low else None
         if val.get("model_key") == "thermal_liquid_cooling":
@@ -4287,7 +4314,7 @@ def build_15s_read(
     elif attack_v == "Yes" and "突破" in attack_type_v:
         attack_display = "突破型 Yes"
     elif attack_v == "候選" or "候選" in attack_type_v:
-        attack_display = "回檔候選"
+        attack_display = "突破候選" if "突破候選" in attack_type_v else "回檔候選"
 
     # V10：CAF 與操作文字一致性防呆。
     # 若財報通過且 Core Yes，不可因 action 舊值仍是「只觀察」而把分享文寫得像基本面不行。
@@ -4370,7 +4397,10 @@ def build_15s_read(
     if "高於支撐區上緣" in fundamental_quick or "已高於支撐區" in fundamental_quick:
         valuation_guard_line = "股價已先買一部分未來，需靠營收、毛利率、EPS 接棒；不可用樂觀價重押。"
         if "需先檢查 EPS 基礎與族群 PE" in fundamental_quick:
-            valuation_guard_line = "估值模型已觸發防呆：請先確認 EPS 基礎與族群 PE；未確認前不得用樂觀價重押。"
+            if (a.get("val") or {}).get("model_key") == "advanced_packaging_osat":
+                valuation_guard_line = "封測 Re-rating 有根，但現價已非低估區；需靠 Q2 EPS 與雙率續升接棒，不可追板重押。"
+            else:
+                valuation_guard_line = "估值模型已觸發防呆：請先確認 EPS 基礎與族群 PE；未確認前不得用樂觀價重押。"
         if "目前仍在基本面可解釋範圍內" in position_comment:
             position_comment = "股價已高於基本面支撐區，需等基本面接棒或回檔確認。"
     elif "位於" in fundamental_quick and ("支撐區" in fundamental_quick or "合理" in fundamental_quick):
@@ -4405,6 +4435,8 @@ def build_15s_read(
         market_watch = "市場主要看 AI / HPC / ASIC 高階 ABF 載板需求、報價與產品組合改善，能不能繼續接棒營收與 EPS。"
     elif (a.get("val") or {}).get("model_key") == "thermal_liquid_cooling":
         market_watch = "市場主要看 AI 伺服器散熱 / 液冷、ASIC 散熱與資料中心散熱需求，能不能繼續接棒營收、毛利率與 EPS。"
+    elif (a.get("val") or {}).get("model_key") == "advanced_packaging_osat":
+        market_watch = "市場主要看 AI 先進封裝 / 測試 / SiP 與封測稼動率改善，能不能繼續接棒營收、毛利率、營益率與 EPS。"
     elif a.get("core") == "Yes":
         market_watch = "市場主要看營收、EPS 與產業題材能不能繼續接棒股價。"
     elif report == "通過":
@@ -6401,11 +6433,19 @@ def estimate_value(
     _pre_model_key = override_model_key if override_model_key in MODEL_CONFIG else get_model_key(stock, industry_category)
     _is_highspeed_material = _pre_model_key == "ai_highspeed_materials"
     _is_abf_substrate = _pre_model_key == "abf_substrate"
+    _is_advanced_packaging_osat = _pre_model_key == "advanced_packaging_osat"
     # 成長假設改成「財報有根」：營收、EPS、毛利/營益率同步愈強，未來 12 個月 EPS 才能往上推。
     # fix25：AI 高階 CCL / 高速材料若 Q1 財報與營收明確加速，不能用一般成長股低成長假設。
     # fix26：AI 高階 ABF / BT 載板若景氣循環復甦且 Q1 EPS 已明顯轉強，
     # 不能只用 TTM EPS 小幅成長；要允許最近一季 EPS run-rate 成為未來 12 個月 EPS 輔助。
-    if _is_abf_substrate and rev_yoy is not None and rev_yoy >= 25 and fj["revenue_to_eps"] in ["有", "部分有"] and fj["margin"] in ["有", "普通"]:
+    if _is_advanced_packaging_osat:
+        # fix33｜先進封裝 / 封測龍頭 EPS 基礎防呆：
+        # 有些資料源的 rev_yoy / eps_yoy / margin 欄位會缺漏或被歸類成觀察，
+        # 但模型已經被明確指定為 advanced_packaging_osat 時，
+        # 只要財報本體不是不通過，就不能回到近四季 EPS 原地估值。
+        # 先用 22% 作保守 2026 EPS 成長假設；若財報不通過才降為 8%。
+        growth = 0.22 if fj["report"] in ["通過", "部分通過"] else 0.08
+    elif _is_abf_substrate and rev_yoy is not None and rev_yoy >= 25 and fj["revenue_to_eps"] in ["有", "部分有"] and fj["margin"] in ["有", "普通"]:
         growth = 0.85
     elif _is_abf_substrate and rev_yoy is not None and rev_yoy >= 15 and fj["revenue_to_eps"] in ["有", "部分有"]:
         growth = 0.65
@@ -6430,7 +6470,12 @@ def estimate_value(
 
     ttm_projected = base_eps * (1 + growth)
     if annualized_eps is not None and annualized_eps > 0 and not suspect_single_quarter_as_ttm:
-        if _is_abf_substrate and rev_yoy is not None and rev_yoy >= 20 and fj["revenue_to_eps"] in ["有", "部分有"] and fj["margin"] in ["有", "普通"]:
+        if _is_advanced_packaging_osat:
+            # fix33｜先進封裝 / 封測龍頭：
+            # 不靠單一欄位判斷是否套用 run-rate。只要是此模型，就用「TTM 成長假設 + 單季年化上限」雙軌保守取高。
+            future_eps = max(ttm_projected, min(annualized_eps * 1.05, base_eps * 1.35))
+            future_eps_note = "採近四季 EPS × 成長假設，並以最近一季年化作先進封裝 / 封測 run-rate 輔助"
+        elif _is_abf_substrate and rev_yoy is not None and rev_yoy >= 20 and fj["revenue_to_eps"] in ["有", "部分有"] and fj["margin"] in ["有", "普通"]:
             # ABF / 高階載板復甦初期，TTM EPS 會落後最新一季 run-rate。
             # 但仍不能直接把單季 EPS 無限制年化，因此用 annualized_eps × 1.08 並加上 base_eps 上限防呆。
             future_eps = max(ttm_projected, min(annualized_eps * 1.08, base_eps * 2.20))
@@ -6444,6 +6489,13 @@ def estimate_value(
         future_eps_note = "採 EPS 基礎 × 成長假設；未直接使用單季 EPS 乘年度 PE"
     if eps_basis_warning:
         future_eps_note += "；" + eps_basis_warning
+    # fix33｜先進封裝 / 封測龍頭最後 EPS 支撐防呆：
+    # 避免因 annualized 分支未進入或欄位缺漏，最後仍只用近四季 EPS。
+    if _is_advanced_packaging_osat and base_eps is not None and base_eps > 0:
+        _adv_floor_eps = base_eps * (1.22 if fj["report"] in ["通過", "部分通過"] else 1.08)
+        if future_eps is None or future_eps < _adv_floor_eps:
+            future_eps = _adv_floor_eps
+            future_eps_note = "採近四季 EPS × 先進封裝 / 封測重評成長假設"
     if override_model_key and override_model_key in MODEL_CONFIG:
         model_key = override_model_key
         model = MODEL_CONFIG[override_model_key]
@@ -7330,6 +7382,14 @@ def build_trade_plan(price, val, action, core, attack, focus):
         shallow_low_raw = close * 0.943
         shallow_high_raw = close * 0.982
 
+    # fix31｜AI 先進封裝 / 封測龍頭買點分層：
+    # 漲停 / 突破後不追主倉；主倉回到估值 / 技術支撐，小倉看淺回檔，右側看隔日確認。
+    if val and val.get("model_key") == "advanced_packaging_osat" and close is not None:
+        new_low_raw = close * 0.84
+        new_high_raw = close * 0.90
+        shallow_low_raw = close * 0.918
+        shallow_high_raw = close * 0.955
+
     # V9.2：壓力位分層。短線壓力看近 20 日反彈壓力；關鍵壓力優先看 60/120 日前高或波段高點，
     # 避免強趨勢股只抓到最近短壓，右側突破條件太早觸發。
     high120 = None
@@ -7390,6 +7450,9 @@ def build_trade_plan(price, val, action, core, attack, focus):
     wrong_raw = max(valid_wrong) if valid_wrong else close * 0.95
     if val and val.get("model_key") == "thermal_liquid_cooling" and close is not None:
         wrong_raw = min(wrong_raw, close * 0.925)
+    if val and val.get("model_key") == "advanced_packaging_osat" and close is not None:
+        wrong_raw = min(wrong_raw, close * 0.928)
+        stop_raw = min(stop_raw, close * 0.875)
     short_raw = max(close * 1.08, (high20 * 1.03) if high20 else close * 1.08)
     wave_raw = max(close * 1.15, (high20 * 1.08) if high20 else close * 1.15)
     if val.get("ok"):
@@ -7410,6 +7473,11 @@ def build_trade_plan(price, val, action, core, attack, focus):
     new_high = round_price_to_tick(max(new_low_raw, new_high_raw), "floor")
     shallow_low = round_price_to_tick(min(shallow_low_raw, shallow_high_raw), "floor")
     shallow_high = round_price_to_tick(max(shallow_low_raw, shallow_high_raw), "floor")
+    # fix31｜區間防呆：避免淺回檔小倉區出現 527～527 這種上下界重疊。
+    if shallow_low is not None and shallow_high is not None and shallow_high <= shallow_low:
+        _center = shallow_low
+        shallow_low = round_price_to_tick(_center * 0.98, "floor")
+        shallow_high = round_price_to_tick(_center * 1.02, "ceil")
     short_pressure_price = round_price_to_tick(short_pressure_raw, "ceil")
     key_pressure_price = round_price_to_tick(key_pressure_raw, "ceil")
     right_price = round_price_to_tick(right_raw, "ceil")
@@ -7680,6 +7748,7 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
         "connector_highspeed",
         "semicap_equipment_material",
         "thermal_liquid_cooling",
+        "advanced_packaging_osat",
         "ip_asic_design",
     ]
     rerating_growth_core_pass = (
@@ -7825,6 +7894,29 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
             "低毛利、存貨與應收只限制 Focus、重押與 PE 上限，不直接否決 Core。"
         )
 
+    # fix31｜AI 先進封裝 / 封測龍頭 Core 防呆：
+    # 資本密集、負債高、自由現金流受投資支出壓抑，可限制 Focus / 追價 / PE 上緣，
+    # 但若財報本體通過、營收轉 EPS、雙率改善、估值重評成立，不得直接 Core No。
+    advanced_packaging_core_override = (
+        core == "No"
+        and model_key == "advanced_packaging_osat"
+        and fj["report"] == "通過"
+        and fj["eps"] in ["有", "部分有"]
+        and fj["revenue_to_eps"] in ["有", "部分有"]
+        and fj["margin"] in ["有", "普通"]
+        and fj["growth_quality"] in ["通過", "部分通過"]
+        and rr["verdict"] in ["成立", "部分成立"]
+        and rj["score"] >= 1
+    )
+    if advanced_packaging_core_override:
+        core_normal_pass = True
+        core = "Yes"
+        core_status = "AI 先進封裝 / 封測龍頭正式收編"
+        core_reason = (
+            "AI 先進封裝 / 封測龍頭 Core 收編：財報通過、營收有轉 EPS、毛利率 / 營益率改善、"
+            "Q2 展望或先進封裝 Re-rating 支撐；負債與自由現金流壓力只限制 Focus 與追漲停，不直接否決 Core。"
+        )
+
     # fix20｜低毛利平台外資吃貨加分：
     # 鴻海這類低毛利 AI 製造平台，只要外資 20 日明顯買超且買進天數夠多，
     # 可以提高 Attack / 小倉觀察分數；但不放寬 Focus 與重押。
@@ -7885,6 +7977,7 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
     volume_pullback_ok = not volume_panic_sell
     volume_ok = volume_warming or volume_pullback_ok
     breakout_now = price.get("breakout_now") if price else False
+    day_chg_pct = price.get("change_pct") if price else None
 
     # MA60 可跌破 4% 內，仍視為支撐測試 / 正常回測。
     ma60_support_ok = (
@@ -8012,6 +8105,14 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
         or chip_distribution
     )
     _hard_attack_no = _foreign_or_total_selling and (_price_broken or _selling_expanding or trend["status"] in ["趨勢轉弱", "趨勢反轉"])
+    # fix32｜先進封裝突破候選：
+    # 漲停 / 大量突破後即使 20 日法人仍賣超，也可能是回補點火；
+    # 只要沒有破支撐、沒有趨勢轉弱，不可直接 hard No。
+    if model_key == "advanced_packaging_osat" and not _price_broken and trend["status"] not in ["趨勢轉弱", "趨勢反轉"]:
+        if (day_chg_pct is not None and day_chg_pct >= 7) or (ret5 is not None and ret5 >= 8) or bool(breakout_now) or (volume_ratio is not None and volume_ratio >= 1.25 and near_breakout):
+            _hard_attack_no = False
+
+    day_chg_pct = price.get("change_pct") if price else None
 
     _candidate_profiles = {
         "semi_leader": "權值龍頭回檔候選",
@@ -8022,6 +8123,7 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
         "abf_substrate": "ABF 載板回檔候選",
         "ai_highspeed_materials": "高階材料回檔候選",
         "thermal_liquid_cooling": "散熱液冷回檔候選",
+        "advanced_packaging_osat": "先進封裝突破候選",
     }
     _supports_candidate = model_key in _candidate_profiles
 
@@ -8052,6 +8154,14 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
         elif model_key == "thermal_liquid_cooling":
             # 散熱 / 液冷：法人短賣常見，但若未破支撐、波段未壞，可列未來一週候選。
             _model_candidate_ok = near_support or near_breakout or _below_attack_ma
+        elif model_key == "advanced_packaging_osat":
+            # 先進封裝 / 封測龍頭：漲停或突破後不追板，等隔日不跌回 / 量能確認；回檔則看承接。
+            _advanced_breakout_candidate = bool(breakout_now) or (ret5 is not None and ret5 >= 8) or (volume_ratio is not None and volume_ratio >= 1.25 and near_breakout)
+            _model_candidate_ok = (
+                fj["revenue_to_eps"] in ["有", "部分有"]
+                and fj["margin"] in ["有", "普通"]
+                and (_advanced_breakout_candidate or near_support or near_breakout)
+            )
 
     if _supports_candidate:
         if _hard_attack_no:
@@ -8060,9 +8170,14 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
         elif _model_candidate_ok and attack != "Yes":
             attack_candidate = True
             attack_candidate_profile = _candidate_profiles.get(model_key, "回檔候選")
-            attack_candidate_reason = "Core / 財報通過且波段未壞，等待 3～7 日內回檔承接或右側站回"
-            attack = "候選"
-            attack_type = f"{attack_candidate_profile}｜等回檔承接或右側確認"
+            if model_key == "advanced_packaging_osat" and ('_advanced_breakout_candidate' in locals() and _advanced_breakout_candidate):
+                attack_candidate_reason = "漲停 / 突破後等待隔日不跌回與量能確認，不追板"
+                attack = "候選"
+                attack_type = f"{attack_candidate_profile}｜漲停後等隔日確認"
+            else:
+                attack_candidate_reason = "Core / 財報通過且波段未壞，等待 3～7 日內回檔承接或右側站回"
+                attack = "候選"
+                attack_type = f"{attack_candidate_profile}｜等回檔承接或右側確認"
         elif _model_candidate_ok and attack == "Yes" and _foreign_or_total_selling and _below_attack_ma and not bool(breakout_now):
             # 已符合原回檔型，但籌碼未乾淨、也未站回攻擊位，降成候選，避免把「等待觸發」寫成已攻擊。
             attack_candidate = True
@@ -8070,6 +8185,36 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
             attack_candidate_reason = "條件接近，但法人 / 技術尚未確認，先列候選不列正式攻擊"
             attack = "候選"
             attack_type = f"{attack_candidate_profile}｜等回檔承接或右側確認"
+
+    # fix31｜封測龍頭突破候選：
+    # 漲停 / 大漲突破是攻擊味，但不是無腦追。若 Focus 不成立且外資 20 日仍賣或風報比偏差，
+    # 先列「突破候選」，等隔日不跌回與量能確認。
+    if model_key == "advanced_packaging_osat" and attack == "Yes":
+        _advanced_overheated_breakout = (ret5 is not None and ret5 >= 8) or bool(breakout_now)
+        _advanced_chip_not_clean = _foreign_or_total_selling or (n20 is not None and n20 < 0)
+        if _advanced_overheated_breakout and (_advanced_chip_not_clean or ps not in ["低估", "偏低估", "合理"]):
+            attack_candidate = True
+            attack_candidate_profile = "先進封裝突破候選"
+            attack_candidate_reason = "漲停 / 突破後風報比不足，等隔日不跌回與量能確認"
+            attack = "候選"
+            attack_type = "先進封裝突破候選｜漲停後等隔日確認"
+
+    # fix32｜advanced_packaging_osat 最後防呆：
+    # 若封測龍頭財報通過、Core Yes、漲停 / 大量突破，且波段未壞，
+    # 即使 20 日法人仍賣超，也應是「突破候選」，不是完全 Attack No。
+    if model_key == "advanced_packaging_osat" and core == "Yes" and attack == "No":
+        _advanced_breakout_candidate_final = (
+            (day_chg_pct is not None and day_chg_pct >= 7)
+            or (ret5 is not None and ret5 >= 8)
+            or bool(breakout_now)
+            or (volume_ratio is not None and volume_ratio >= 1.25 and near_breakout)
+        )
+        if _advanced_breakout_candidate_final and trend["status"] not in ["趨勢轉弱", "趨勢反轉"] and not _price_broken:
+            attack_candidate = True
+            attack_candidate_profile = "先進封裝突破候選"
+            attack_candidate_reason = "漲停 / 突破後不追板，等隔日不跌回與量能確認"
+            attack = "候選"
+            attack_type = "先進封裝突破候選｜漲停後等隔日確認"
 
     opt_range = val.get("opt") if val.get("ok") else None
     opt_low = None
@@ -8272,7 +8417,7 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
             warnings.append(_lm_msg)
     if model_key == "ai_highspeed_materials":
             warnings.append("AI 高階材料模型：估值以未來 12 個月 EPS 與高階 CCL / 高速材料 PE 區間計算；持股可看續航，新倉仍要等回檔或右側確認。")
-    if model_key in ["semi_leader", "ic_design_large", "ai_power_premium", "low_margin_assembly", "ai_network_switch_growth", "abf_substrate", "ai_highspeed_materials", "thermal_liquid_cooling"]:
+    if model_key in ["semi_leader", "ic_design_large", "ai_power_premium", "low_margin_assembly", "ai_network_switch_growth", "abf_substrate", "ai_highspeed_materials", "thermal_liquid_cooling", "advanced_packaging_osat"]:
             _candidate_msg = "Attack 回檔候選模型：回檔型 Attack 看未來 3～7 個交易日，不因法人短線賣超一刀否決；需判斷健康調節、候選等待、或出貨型賣壓。"
             if 'attack_candidate' in locals() and attack_candidate:
                 _candidate_msg += f" 目前屬 {attack_candidate_profile or '回檔候選'}：{attack_candidate_reason or '等待回檔承接或右側站回'}。"
@@ -8859,6 +9004,8 @@ def _buy_zone_distance_text(price, a):
 
 def display_attack_type(attack_type, price=None, a=None):
     s = str(attack_type or "無")
+    if "突破候選" in s:
+        return "突破候選｜等隔日確認"
     if "候選" in s:
         return "回檔候選｜等觸發"
     if s.startswith("回檔型"):
@@ -10209,6 +10356,9 @@ def build_buy_zone_summary(price, a, buy_point_rows=None):
             "現價雖然較低，但短線尚未修復；低接只適合小倉觀察，"
             f"站回確認區才代表買點品質提高；跌破 {wrong} 先降風險。"
         )
+    elif "突破候選" in attack_type:
+        main = f"突破候選｜等右側確認 {breakout_zone}"
+        condition = f"漲停 / 突破後不追板；隔日不跌回、量能維持、法人賣壓不擴大，才升級為 Attack。跌破 {wrong} 先認錯。"
     elif "候選" in attack_type:
         main = f"Attack 候選｜等回檔 {shallow_zone} 或右側確認"
         condition = f"未來一週觀察承接與站回；法人賣超若縮小、守住 {wrong} 且站回確認區，才升級為 Attack。"
