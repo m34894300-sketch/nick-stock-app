@@ -1991,6 +1991,16 @@ STOCK_MODEL_MAP.update({
     "6806": "green_energy_storage", "6869": "green_energy_storage",
 })
 
+# fix25｜AI 高階材料 / 高階 CCL / 高速材料重評模型
+# 台光電、台燿、聯茂、金居這類高階 CCL / 高速材料核心股，
+# 不可再套一般 PCB/零組件 PE（例如 16x～22x）。
+STOCK_MODEL_MAP.update({
+    "2383": "ai_highspeed_materials",  # 台光電
+    "6274": "ai_highspeed_materials",  # 台燿
+    "6213": "ai_highspeed_materials",  # 聯茂
+    "8358": "ai_highspeed_materials",  # 金居
+})
+
 INDUSTRY_MODEL_MAP = {
     "金融保險業": "financial",
     "建材營造": "asset_construction",
@@ -2067,10 +2077,22 @@ MODEL_CONFIG = {
         "rerating": (31, 40),
         "market_premium": (41, 50),
     },
+    "ai_highspeed_materials": {
+        "name": "AI 高階材料 / 高階 CCL / 高速材料重評",
+        "primary": "PE 為主，EPS 上修、毛利率、AI 高階材料占比與產能能見度輔助",
+        "note": "適用台光電、台燿、聯茂、金居等 AI 高階 CCL / 高速材料 / HDI / mSAP 核心股；若營收、EPS、毛利率與法人預期都有驗證，不可套一般 PCB 或零組件 PE。",
+        "down": (45, 55),
+        "cons": (55, 65),
+        "neutral": (65, 75),
+        "opt": (75, 85),
+        "rerating": (85, 100),
+        "market_premium": (100, 115),
+        "support_key": "neutral",
+    },
     "ai_pcb_ccl": {
         "name": "AI / 高速傳輸 / PCB / CCL 成長",
         "primary": "PE 為主，毛利率與產品結構加權",
-        "note": "重點是高階產品占比、毛利率與 EPS 是否跟上；股價先跑時必須驗證基本面追不追得上。",
+        "note": "重點是高階產品占比、毛利率與 EPS 是否跟上；股價先跑時必須驗證基本面追不追得上。若屬高階 CCL / 高速材料核心股，應改用 AI 高階材料模型。",
         "down": (8, 11),
         "cons": (12, 16),
         "neutral": (16, 22),
@@ -2893,6 +2915,7 @@ HIGH_QUALITY_GROWTH_MODELS = [
     "growth_premium",
     "ai_power_premium",
     "ai_pcb_ccl",
+    "ai_highspeed_materials",
     "ic_design_large",
     "optical_ai_datacenter",
     "precision_component_growth",
@@ -2973,6 +2996,7 @@ def _fingerprint_model_key(initial_key, industry_category, fj):
     _optical = ["通信網路", "光通訊", "光電", "光纖", "光模組"]
     _precision = ["電子零組件", "電機機械"]
     _pcb = ["電路板", "線路板", "CCL"]
+    _highspeed_material = ["高階材料", "高速材料", "銅箔基板", "HDI", "mSAP", "低損耗材料", "高頻材料"]
     _power = ["電力", "電源"]
     if any(k in ic for k in _optical):
         # 通信網路 / 網通 / 高速交換器類，優先用 AI 網通強成長模型；
@@ -2980,6 +3004,8 @@ def _fingerprint_model_key(initial_key, industry_category, fj):
         return "ai_network_switch_growth", "財務特徵 fingerprint"
     if any(k in ic for k in _precision):
         return "precision_component_growth", "財務特徵 fingerprint"
+    if any(k in ic for k in _highspeed_material):
+        return "ai_highspeed_materials", "財務特徵 fingerprint"
     if any(k in ic for k in _pcb):
         return "ai_pcb_ccl", "財務特徵 fingerprint"
     if any(k in ic for k in _power):
@@ -3167,7 +3193,8 @@ def auto_select_valuation_model(
         "高速傳輸",
     ]
     _precision_kws = ["電子零組件", "其他電子", "精密零組件", "機構件", "滑軌"]
-    _pcb_kws = ["電路板", "線路板", "CCL", "銅箔基板", "高速材料"]
+    _highspeed_material_kws = ["高階材料", "高速材料", "CCL", "銅箔基板", "HDI", "mSAP", "低損耗材料", "高頻材料"]
+    _pcb_kws = ["電路板", "線路板"]
     _power_kws = ["電力", "電源", "重電", "電力設備"]
     _ic_kws = ["半導體業", "IC設計", "IC 設計"]
 
@@ -3179,6 +3206,8 @@ def auto_select_valuation_model(
         industry_target, industry_evidence = "ai_network_switch_growth", True
     elif any(k in ic for k in _precision_kws) and good_margin:
         industry_target, industry_evidence = "precision_component_growth", True
+    elif any(k in ic for k in _highspeed_material_kws):
+        industry_target, industry_evidence = "ai_highspeed_materials", True
     elif any(k in ic for k in _pcb_kws):
         industry_target, industry_evidence = "ai_pcb_ccl", True
     elif any(k in ic for k in _power_kws):
@@ -4228,7 +4257,7 @@ def build_15s_read(
     report = str(fj.get("report", "資料不足") or "資料不足")
     core_v = str(a.get("core", "No") or "No")
     attack_v = str(a.get("attack", "No") or "No")
-    focus_v = str(a.get("focus", "No") or "No")
+    focus_v = str(a.get("focus_display", a.get("focus", "No")) or "No")
     attack_type_v = str(a.get("attack_type", "") or "")
     core_display = core_v
     if core_v == "No" and report == "部分通過":
@@ -4347,7 +4376,9 @@ def build_15s_read(
     financial_ability_text = _plain_text(financial_radar.get("quick", "財務能力資料不足，暫時只能看主要財報。"))
 
     # 市場在看什麼：基本面 + 成長驗證，不用內部標籤。
-    if a.get("core") == "Yes":
+    if (a.get("val") or {}).get("model_key") == "ai_highspeed_materials":
+        market_watch = "市場主要看 AI 高階 CCL / 高速材料、HDI / mSAP、Infrastructure 需求能不能繼續接棒營收與 EPS。"
+    elif a.get("core") == "Yes":
         market_watch = "市場主要看營收、EPS 與產業題材能不能繼續接棒股價。"
     elif report == "通過":
         market_watch = "財報本體已通過，市場接下來看成長能否接棒股價與估值。"
@@ -6340,8 +6371,15 @@ def estimate_value(
 
     rev_yoy = to_float(fin.get("revenue_yoy"))
     eps_yoy = to_float(fin.get("eps_yoy"))
+    _pre_model_key = override_model_key if override_model_key in MODEL_CONFIG else get_model_key(stock, industry_category)
+    _is_highspeed_material = _pre_model_key == "ai_highspeed_materials"
     # 成長假設改成「財報有根」：營收、EPS、毛利/營益率同步愈強，未來 12 個月 EPS 才能往上推。
-    if rev_yoy is not None and eps_yoy is not None and rev_yoy >= 30 and eps_yoy >= 50 and fj["margin"] in ["有", "普通"]:
+    # fix25：AI 高階 CCL / 高速材料若 Q1 財報與營收明確加速，不能用一般成長股低成長假設。
+    if _is_highspeed_material and rev_yoy is not None and eps_yoy is not None and rev_yoy >= 45 and eps_yoy >= 35 and fj["revenue_to_eps"] in ["有", "部分有"] and fj["margin"] in ["有", "普通"]:
+        growth = 0.55
+    elif _is_highspeed_material and rev_yoy is not None and eps_yoy is not None and rev_yoy >= 30 and eps_yoy >= 25 and fj["revenue_to_eps"] in ["有", "部分有"]:
+        growth = 0.45
+    elif rev_yoy is not None and eps_yoy is not None and rev_yoy >= 30 and eps_yoy >= 50 and fj["margin"] in ["有", "普通"]:
         growth = 0.35
     elif rev_yoy is not None and eps_yoy is not None and rev_yoy >= 40 and eps_yoy >= 25 and fj["revenue_to_eps"] in ["有", "部分有"]:
         growth = 0.30
@@ -7233,6 +7271,16 @@ def build_trade_plan(price, val, action, core, attack, focus):
     else:
         shallow_low_raw = close * 0.96
         shallow_high_raw = close * 1.00
+
+    # fix25｜高估值金庫股買點分層拉開：
+    # AI 高階材料 / 高階 CCL 這類高價強股，主買區不能貼太近現價；
+    # 小倉區靠近支撐，主倉區需保留更好的風報比。
+    if val and val.get("model_key") == "ai_highspeed_materials" and close is not None:
+        new_low_raw = close * 0.86
+        new_high_raw = close * 0.91
+        shallow_low_raw = close * 0.93
+        shallow_high_raw = close * 0.97
+
     # V9.2：壓力位分層。短線壓力看近 20 日反彈壓力；關鍵壓力優先看 60/120 日前高或波段高點，
     # 避免強趨勢股只抓到最近短壓，右側突破條件太早觸發。
     high120 = None
@@ -7562,6 +7610,7 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
         "ai_network_switch_growth",
         "optical_ai_datacenter",
         "ai_pcb_ccl",
+        "ai_highspeed_materials",
         "growth_premium",
         "connector_highspeed",
         "semicap_equipment_material",
@@ -7948,6 +7997,25 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
         )
         else "No"
     )
+    # fix25｜Focus 分流：
+    # 高品質金庫股在高位時，低成本持股可以續抱 Focus；
+    # 但空手新倉若風報比不足，仍不得判新倉 Focus。
+    holding_focus = (
+        "Yes"
+        if (
+            core == "Yes"
+            and attack == "Yes"
+            and fj["report"] == "通過"
+            and fj["financial_quality"] == "高"
+            and treasury_focus_ok
+            and chip_focus_ok
+            and trend_focus_ok
+            and rr["verdict"] in ["成立", "部分成立"]
+            and model_key in ["ai_highspeed_materials", "semi_leader", "ai_power_premium", "growth_premium", "ai_network_switch_growth", "optical_ai_datacenter"]
+        )
+        else focus
+    )
+    new_focus = focus
     focus_block_reasons = []
     if focus != "Yes":
         if core != "Yes":
@@ -7976,6 +8044,8 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
             focus_block_reasons.append("趨勢已轉弱或跌破 MA60 容忍區")
         if rr["verdict"] not in ["成立", "部分成立"]:
             focus_block_reasons.append("估值重評未成立")
+    if 'holding_focus' in locals() and holding_focus == "Yes" and new_focus != "Yes":
+        focus_block_reasons.append("持股可續抱 Focus；新倉因買點 / 風報比不足不追主倉")
 
     if fj["report"] == "不通過":
             if attack == "Yes" and attack_type.startswith("突破型"):
@@ -7996,6 +8066,9 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
     elif core == "Yes" and attack == "Yes" and model_key == "low_margin_assembly" and 'low_margin_foreign_accumulation' in locals() and low_margin_foreign_accumulation:
             action = "小倉試單"
             why = "財報通過，Core Yes；低毛利 AI 製造平台有外資吃貨跡象，Attack 小倉觀察，Focus No；靠近壓力不重押"
+    elif core == "Yes" and attack == "Yes" and model_key == "ai_highspeed_materials" and 'holding_focus' in locals() and holding_focus == "Yes" and new_focus != "Yes":
+            action = "等回檔 / 小倉試單"
+            why = "財報通過，Core Yes；Attack Yes；持股 Focus Yes，新倉 Focus No；現價不追主倉"
     elif core == "Yes" and attack == "Yes" and attack_type.startswith("回檔型"):
             action = "小倉試單"
             why = "財報通過，Core Yes；Attack 回檔型 Yes，Focus No；目前可小倉測承接，但不適合重押"
@@ -8049,6 +8122,8 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
             if 'low_margin_foreign_accumulation' in locals() and low_margin_foreign_accumulation:
                 _lm_msg += " 外資近 20 日明顯買超，可提高小倉觀察分數，但不等於 Focus 重押。"
             warnings.append(_lm_msg)
+    if model_key == "ai_highspeed_materials":
+            warnings.append("AI 高階材料模型：估值以未來 12 個月 EPS 與高階 CCL / 高速材料 PE 區間計算；持股可看續航，新倉仍要等回檔或右側確認。")
     if fin and fin.get("eps_cumulative_suspect"):
             warnings.append(
                 "EPS 防呆提醒：近四季 EPS 疑似出現累計值型態，系統已嘗試轉成單季 EPS，但估值仍需人工複核。"
@@ -8221,6 +8296,9 @@ def decide_all(stock, price, rev, inst, fin, bal, cf, industry_category=None):
         "attack": attack,
         "attack_type": attack_type,
         "focus": focus,
+        "holding_focus": holding_focus if 'holding_focus' in locals() else focus,
+        "new_focus": new_focus if 'new_focus' in locals() else focus,
+        "focus_display": ("持股 Yes｜新倉 No" if ('holding_focus' in locals() and holding_focus == "Yes" and 'new_focus' in locals() and new_focus != "Yes") else focus),
         "focus_block_reasons": focus_block_reasons,
         "action": action,
         "why": why,
@@ -8634,9 +8712,13 @@ def display_attack_type(attack_type, price=None, a=None):
 
 def display_focus_state(a):
     focus = a.get("focus", "No")
+    holding_focus = a.get("holding_focus", focus)
+    new_focus = a.get("new_focus", focus)
     core = a.get("core", "No")
     attack = a.get("attack", "No")
     reasons = a.get("focus_block_reasons", []) or []
+    if holding_focus == "Yes" and new_focus != "Yes":
+        return "持股 Focus｜新倉等回檔", "低成本持有可續抱；空手新倉不追主倉"
     if focus == "Yes":
         return "優先觀察", "未來一週值得優先盯買點"
     if core == "Yes" and attack == "Yes":
@@ -10181,7 +10263,7 @@ Core 收編｜{a["core"]}
 Core 狀態｜{a.get("core_status", "無資料")}
 財報金庫級別｜{fj["treasury"]}（{fmt(fj.get("treasury_score"), 1)}/12）
 Attack 攻擊｜{a["attack"]}（{a.get("attack_type", "無")}）
-Focus 優先觀察｜{a["focus"]}
+Focus 優先觀察｜{a.get("focus_display", a["focus"])}
 最終動作｜{a["action"]}
 目前股價估值區間｜{a.get("valuation_zone", "資料不足")}
 一句話總結：
@@ -10255,7 +10337,7 @@ FinMind / 公開資料｜{inst.get("latest_date") if inst else "無資料"}｜�
 【第七步｜核心裁決總表】
 • 公司收編意願 Core：{a["core"]}
 • 攻擊倉出手機會 Attack：{a["attack"]}
-• 優先觀察 Focus：{a["focus"]}
+• 優先觀察 Focus：{a.get("focus_display", a["focus"])}
 • 趨勢變化：{trend["status"]}
 • 最終動作：{a["action"]}
 • 交易分級：{a["grade"]}
@@ -10271,7 +10353,7 @@ FinMind / 公開資料｜{inst.get("latest_date") if inst else "無資料"}｜�
 • 短線目標 / 波段目標：{a["plan"]["short"]} / {a["plan"]["wave"]}
 Core：{a["core"]}｜{a.get("core_status", "無資料")}｜原因：{a.get("core_reason", "無資料")}
 Attack：{a["attack"]}｜原因：{attack_reason}
-Focus：{a["focus"]}｜狀態：{display_focus_state(a)[0]}｜原因：{focus_reason}
+Focus：{a.get("focus_display", a["focus"])}｜狀態：{display_focus_state(a)[0]}｜原因：{focus_reason}
 ━━━━━━━━━━
 【第八步｜交易策略與買點固定邏輯】
 • {a["plan"].get("new_label", "新倉主區")}：{a["plan"]["new"]}
