@@ -2345,7 +2345,8 @@ MODEL_CONFIG.update({
 # fix30｜AI 散熱液冷估值支撐 PE 校正
 # fix31｜AI 先進封裝封測龍頭模型＋突破候選邏輯
 # fix32｜先進封裝 EPS 基礎校正＋突破候選強化
-# fix33｜先進封裝模型強制 EPS 支撐校正＋漲停突破候選觸發修正：支撐 PE 由傳統散熱低估值上修至 AI 散熱 / 液冷重評區間
+# fix33｜先進封裝模型強制 EPS 支撐校正＋漲停突破候選觸發修正
+# fix34｜先進封裝估值支撐區改用 future_eps 計算：支撐 PE 由傳統散熱低估值上修至 AI 散熱 / 液冷重評區間
 # =========================
 # 來源：5 檔正式法醫報告回測（台積電、聯發科、台達電、鴻海、智邦）
 # 原則：不寫死個股價格 / EPS / 目標價；只建立通用族群 PE 模型與判斷規則。
@@ -6552,14 +6553,27 @@ def estimate_value(
             min(pe_scenarios["rerating"][0], 19),
             min(pe_scenarios["rerating"][1], 22),
         )
-    ranges = {
-        "down": calc_range(base_eps, pe_scenarios["down"]),
-        "cons": calc_range(base_eps, pe_scenarios["cons"]),
-        "neutral": calc_range(future_eps, pe_scenarios["neutral"]),
-        "opt": calc_range(future_eps, pe_scenarios["opt"]),
-        "rerating": calc_range(future_eps, pe_scenarios["rerating"]),
-        "market_premium": calc_range(future_eps, pe_scenarios["market_premium"]),
-    }
+    if model_key == "advanced_packaging_osat":
+        # fix34｜先進封裝 / 封測龍頭估值支撐區：
+        # support_key=cons 時也必須用 future_eps 計算，不能再用 base_eps。
+        # 否則畫面會寫「未來 12 個月 EPS」，但數字仍是近四季 EPS × PE。
+        ranges = {
+            "down": calc_range(base_eps, pe_scenarios["down"]),
+            "cons": calc_range(future_eps, pe_scenarios["cons"]),
+            "neutral": calc_range(future_eps, pe_scenarios["neutral"]),
+            "opt": calc_range(future_eps, pe_scenarios["opt"]),
+            "rerating": calc_range(future_eps, pe_scenarios["rerating"]),
+            "market_premium": calc_range(future_eps, pe_scenarios["market_premium"]),
+        }
+    else:
+        ranges = {
+            "down": calc_range(base_eps, pe_scenarios["down"]),
+            "cons": calc_range(base_eps, pe_scenarios["cons"]),
+            "neutral": calc_range(future_eps, pe_scenarios["neutral"]),
+            "opt": calc_range(future_eps, pe_scenarios["opt"]),
+            "rerating": calc_range(future_eps, pe_scenarios["rerating"]),
+            "market_premium": calc_range(future_eps, pe_scenarios["market_premium"]),
+        }
     close = price.get("close") if price else None
     implied_ttm_pe = safe_div(close, ttm_eps) if close is not None and ttm_eps else None
     implied_future_pe = (
